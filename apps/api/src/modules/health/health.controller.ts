@@ -1,4 +1,6 @@
-import { Controller, Get, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
+import { ResponseMessage } from '../../common/decorators/response-message.decorator';
+import { ServiceUnavailableDomainException } from '../../common/exceptions/common.exceptions';
 import { DatabaseService } from '../../database/database.service';
 
 export interface HealthStatus {
@@ -10,11 +12,10 @@ export interface HealthStatus {
 // Railway probes this. A 503 when the database is unreachable lets the platform see the outage.
 @Controller('health')
 export class HealthController {
-  private readonly logger = new Logger(HealthController.name);
-
   constructor(private readonly db: DatabaseService) {}
 
   @Get()
+  @ResponseMessage('API is healthy')
   async check(): Promise<HealthStatus> {
     try {
       const { latencyMs } = await this.db.ping();
@@ -24,13 +25,8 @@ export class HealthController {
         database: { status: 'up', latencyMs },
       };
     } catch (error) {
-      // Log the cause; the public response says only that the database is down.
-      this.logger.error(`Database health check failed: ${error instanceof Error ? error.message : String(error)}`);
-      throw new ServiceUnavailableException({
-        status: 'error',
-        uptimeSeconds: Math.round(process.uptime()),
-        database: { status: 'down' },
-      });
+      // The filter logs the cause; the response only says the database is unreachable.
+      throw new ServiceUnavailableDomainException('The database is unreachable.', error);
     }
   }
 }
