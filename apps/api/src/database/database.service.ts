@@ -44,7 +44,7 @@ function describeError(error: unknown): string {
  *
  * Two pools:
  * - pooled (DATABASE_URL, through Neon's PgBouncer) for normal queries;
- * - direct (DATABASE_DIRECT_URL) for migrations and advisory locks, which need a real
+ * - direct (DATABASE_URL_UNPOOLED) for migrations and advisory locks, which need a real
  *   session that PgBouncer's transaction mode can't give.
  */
 @Injectable()

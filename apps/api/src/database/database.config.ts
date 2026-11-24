@@ -4,11 +4,24 @@
 export interface DatabaseConfig {
   /** Neon pooled URL (host contains "-pooler"). Used for every normal query. */
   url: string;
-  /** Neon direct URL. Used for migrations and job advisory locks. */
+  /** Neon direct URL (DATABASE_URL_UNPOOLED, the name `neon env pull` writes). Used for migrations and job advisory locks. */
   directUrl: string;
 }
 
 const POSTGRES_PROTOCOLS = new Set(['postgres:', 'postgresql:']);
+
+// pg 8 treats these as verify-full (and warns); pg 9 will downgrade them to libpq's weaker
+// meaning. `neon env pull` writes sslmode=require, so pin verify-full here: Neon serves
+// publicly trusted certificates, so the full check always passes.
+const SSL_MODES_TO_PIN = new Set(['prefer', 'require', 'verify-ca']);
+
+function pinFullTlsVerification(url: URL): string {
+  const sslmode = url.searchParams.get('sslmode');
+  if (sslmode && SSL_MODES_TO_PIN.has(sslmode)) {
+    url.searchParams.set('sslmode', 'verify-full');
+  }
+  return url.toString();
+}
 
 function readPostgresUrl(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]?.trim();
@@ -26,12 +39,12 @@ function readPostgresUrl(env: NodeJS.ProcessEnv, name: string): string {
   if (!POSTGRES_PROTOCOLS.has(parsed.protocol)) {
     throw new Error(`${name} must start with postgres:// or postgresql://.`);
   }
-  return value;
+  return pinFullTlsVerification(parsed);
 }
 
 export function loadDatabaseConfig(env: NodeJS.ProcessEnv = process.env): DatabaseConfig {
   return {
     url: readPostgresUrl(env, 'DATABASE_URL'),
-    directUrl: readPostgresUrl(env, 'DATABASE_DIRECT_URL'),
+    directUrl: readPostgresUrl(env, 'DATABASE_URL_UNPOOLED'),
   };
 }

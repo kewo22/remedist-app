@@ -1,4 +1,7 @@
 {
   "extends": "./tsconfig.json",
+  // Nest's deleteOutDir wipes dist/ but not the .tsbuildinfo, so an incremental build
+  // would skip re-emitting unchanged files and leave dist/ incomplete.
+  "compilerOptions": { "incremental": false },
   "exclude": ["node_modules", "dist", "**/*.spec.ts", "**/*.test.ts"]
 }
