@@ -21,7 +21,7 @@ The Remedist is a clinic platform: a public website, client booking and payment,
 | Area | Choice |
 |------|--------|
 | Monorepo | Turborepo + pnpm workspaces |
-| API | NestJS 11, TypeScript `strict: true` |
+| API | NestJS 11, TypeScript `strict: true`. TypeScript is pinned to `~5.9` because that is what Nest CLI 11 is built against. Don't bump to 6 or 7 without moving to NestJS 12. |
 | Database | Neon Postgres (AWS Singapore). Pooled URL for the app, direct URL for migrations. No SQLite. |
 | Data access | `pg` via a `DatabaseService`. Hand-written SQL lives only in repository classes. No ORM. |
 | Migrations | Numbered `.sql` files plus a runner that records them in a `schema_migrations` table |
