@@ -243,7 +243,8 @@ Each app has its own `.env` and `.env.example`. The main ones:
 
 **API (`apps/api/.env`)**
 - `PORT` (3001), `WEB_URL` (for CORS and links in emails), `APP_URL`
-- `DATABASE_URL` (pooled), `DATABASE_DIRECT_URL` (migrations and job locks), `DATABASE_AI_URL` (read-only role for Ask Remedist)
+- `DATABASE_URL` (pooled), `DATABASE_URL_UNPOOLED` (direct: migrations and job locks), `DATABASE_AI_URL` (read-only role for Ask Remedist). The first two are Neon's own names: run `neon env pull` in `apps/api` to fill them in `.env` without touching other lines.
+- Local development uses the Neon `dev` branch, pinned in the git-ignored `apps/api/.neon` (`neon checkout dev`). Never point a local `.env` at `production`.
 - `JWT_SECRET`, `ADMIN_JWT_SECRET`
 - `PAYHERE_MERCHANT_ID`, `PAYHERE_MERCHANT_SECRET`, `PAYHERE_MODE`
 - `TWILIO_*`, `RESEND_API_KEY`
