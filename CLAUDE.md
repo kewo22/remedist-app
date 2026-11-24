@@ -117,7 +117,11 @@ modules/bookings/
 - Successful responses are wrapped by `ResponseInterceptor` as `{ success, statusCode, message, data, meta? }`. Set the message with `@ResponseMessage('...')`.
 - Errors are shaped by `AllExceptionsFilter` as `{ success: false, statusCode, message, errorCode, errors?, path, timestamp }`.
 - Use `@SkipEnvelope()` only where the caller needs a raw response: the PayHere notify webhook, Twilio inbound, the Google OAuth callback page and file downloads.
-- Throw typed domain exceptions with a stable `errorCode`, for example `SlotUnavailableException` → `SLOT_UNAVAILABLE`. Don't throw a bare `Error`. Error codes live in `packages/shared` so the web app can react to them.
+- To return `meta` (for example pagination) next to `data`, return `new WithMeta(data, meta)` from the handler (`common/responses/with-meta.ts`).
+- Throw typed domain exceptions with a stable `errorCode`, for example `SlotUnavailableException` → `SLOT_UNAVAILABLE`. Don't throw a bare `Error`. Error codes live in `packages/shared/src/enums/error-code.ts` so the web app can react to them.
+  - Each one extends `DomainException` (`common/exceptions`) with a fixed status, code and message. Generic ones (`ValidationFailedException`, `ResourceNotFoundException`, `ServiceUnavailableDomainException`) are in `common/exceptions/common.exceptions.ts`.
+  - **Only a `DomainException`'s message reaches the client.** Nest's built-in exceptions, body-parser errors and anything unexpected get a fixed message for their status, because their text can echo the URL (with tokens in the query string) or internals. If the user needs a specific message, throw a `DomainException`.
+  - Pass the underlying error as `cause` when wrapping one. The filter logs 5xx with the full cause chain.
 - Public error messages must never reveal internals. That means which rate limit was hit, whether a phone or email is registered, or stack traces.
 
 ### Auth
