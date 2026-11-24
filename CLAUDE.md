@@ -6,15 +6,18 @@ Guidance for Claude Code sessions working in this repository. Keep this file cur
 
 The Remedist is a clinic platform: a public website, client booking and payment, a client portal, and an internal CRM for clinic staff. This repository is a full rebuild of the old Express app (`remedist-backend`) as a Turborepo monorepo:
 
-- `apps/api` is NestJS, the current focus.
-- `apps/web` is Next.js, coming later.
-- `packages/shared` holds shared types, enums and pure business rules.
+- `apps/api` is the NestJS API.
+- `apps/web` is the Next.js web app: the public site, booking, client portal, walk-in kiosk and CRM.
+- `packages/shared` holds shared types, enums, API contracts and pure business rules.
 
-**The old repository is the reference for behaviour, not for code.** Before building a domain, read the matching route and service files in the old repo, plus the relevant section of its `CLAUDE.md`. That file documents every non-obvious business rule. Keep the business outcomes the same unless the product owner approves a change. Routes, queries and structure are redesigned freely.
+The API and the web app are built **at the same time, in separate Git worktrees** (see "Parallel work with Git worktrees"). The web app runs on mock data until each API domain is ready.
+
+**The old repository is the reference for behaviour, not for code.** Before building a domain or a screen, read the matching route, service and HTML/JS files in the old repo, plus the relevant section of its `CLAUDE.md`. That file documents every non-obvious business rule. Keep the business outcomes the same unless the product owner approves a change. Routes, queries, screens and structure are redesigned freely.
 
 - Old repo (read-only reference): `C:\Users\kewin\OneDrive\Documents\dev\remedist-backend`
 - Old business-rules doc: `remedist-backend/CLAUDE.md`
-- Migration plan and task list: `remedist-backend/docs/remedist-plan/` (`backend.html`, `kevins-tasks.html`)
+- Old frontend: `remedist-backend/public/` (`booking.html`, `admin-crm.html`, `walkin.html`, `public/js/*`)
+- Migration plan and task list: `remedist-backend/docs/remedist-plan/` (`backend.html`, `frontend.html`, `kevins-tasks.html`)
 
 ## Stack
 
@@ -22,7 +25,10 @@ The Remedist is a clinic platform: a public website, client booking and payment,
 |------|--------|
 | Monorepo | Turborepo + pnpm workspaces |
 | API | NestJS 11, TypeScript `strict: true`. TypeScript is pinned to `~5.9` because that is what Nest CLI 11 is built against. Don't bump to 6 or 7 without moving to NestJS 12. |
-| Database | Neon Postgres (AWS Singapore). Pooled URL for the app, direct URL for migrations. No SQLite. |
+| Web | Next.js (App Router), TypeScript `strict: true`, same TypeScript version as the API |
+| UI | Tailwind CSS + shadcn/ui, with colours and fonts from the Remedist brand guideline |
+| Web data fetching | TanStack Query for client components; server components call the API client directly |
+| Database | Neon Postgres (AWS Singapore). Pooled URL for the app, direct URL for migrations and job locks. No SQLite. |
 | Data access | `pg` via a `DatabaseService`. Hand-written SQL lives only in repository classes. No ORM. |
 | Migrations | Numbered `.sql` files plus a runner that records them in a `schema_migrations` table |
 | Validation | `class-validator` + `class-transformer`, global `ValidationPipe` |
@@ -36,8 +42,10 @@ The Remedist is a clinic platform: a public website, client booking and payment,
 ```bash
 pnpm install
 pnpm dev                     # run all apps
-pnpm --filter api dev        # API only
+pnpm --filter api dev        # API only (http://localhost:3001)
+pnpm --filter web dev        # web only (http://localhost:3000)
 pnpm --filter api build
+pnpm --filter web build
 pnpm --filter api migrate    # apply pending migrations
 pnpm --filter api seed       # starting data
 pnpm lint
@@ -50,17 +58,34 @@ Update this list if the scripts change.
 
 ```
 apps/api/src/
-  main.ts                 bootstrap: global pipe, interceptor, filter, Swagger, prefix /api/v1
+  main.ts                 bootstrap: global pipe, interceptor, filter, Swagger, prefix /api/v1, CORS for WEB_URL
   app.module.ts
   common/                 decorators, guards, pipes, interceptors, filters, exceptions
   config/                 typed env config, validated at startup
   database/               DatabaseService, migration runner, migrations/*.sql, seeds
   integrations/           payhere, twilio, resend, google, anthropic, turnstile, storage
   modules/<domain>/       one folder per domain (see below)
-packages/shared/src/      types, enums, pure rule functions (no Nest, no DB)
+
+apps/web/src/
+  app/
+    (marketing)/          home, about, ailments, faq, testimonials, probono
+    (auth)/               sign-up, login, verify email, reset password
+    book/                 booking flow
+    portal/               client portal, intake forms, payments
+    kiosk/                walk-in page (tablet layout)
+    crm/                  one route per CRM panel
+  components/ui/          shadcn/ui components
+  components/<area>/      components for one area (booking, crm, portal...)
+  lib/api/                API client, one file per domain, mocks/
+  lib/                    other helpers (formatting, auth, env)
+
+packages/shared/src/
+  contracts/              request and response types per domain, plus the response envelope
+  enums/                  booking status, roles, currencies...
+  rules/                  pure business rules (no Nest, no React, no DB)
 ```
 
-Each domain module follows the same shape:
+Each API domain module follows the same shape:
 
 ```
 modules/bookings/
@@ -72,7 +97,15 @@ modules/bookings/
   bookings.constants.ts         tunable thresholds
 ```
 
-## Conventions
+## API contracts (how the two apps stay in step)
+
+- The contract for each domain lives in `packages/shared/src/contracts/<domain>.ts`: request types, response types and the route paths. Both apps import from it.
+- The response envelope types (`ApiResponse<T>`, `ApiError`) live there too and match the API's interceptor and exception filter exactly.
+- API DTO classes `implements` the matching contract type, so a contract change breaks the API build until the DTO matches.
+- Whoever needs a contract first writes it: usually the web side, while building a screen against mocks. The API then builds to it. If the API needs to change a contract, the web app is updated in the same merge.
+- Keep contract changes in their own small commits and merge them to `main` early, so the other worktree can pick them up (see the worktree rules below).
+
+## Conventions: API
 
 ### Controllers
 - Controllers stay thin. No SQL and no business rules in them.
@@ -84,7 +117,7 @@ modules/bookings/
 - Successful responses are wrapped by `ResponseInterceptor` as `{ success, statusCode, message, data, meta? }`. Set the message with `@ResponseMessage('...')`.
 - Errors are shaped by `AllExceptionsFilter` as `{ success: false, statusCode, message, errorCode, errors?, path, timestamp }`.
 - Use `@SkipEnvelope()` only where the caller needs a raw response: the PayHere notify webhook, Twilio inbound, the Google OAuth callback page and file downloads.
-- Throw typed domain exceptions with a stable `errorCode`, for example `SlotUnavailableException` → `SLOT_UNAVAILABLE`. Don't throw a bare `Error`.
+- Throw typed domain exceptions with a stable `errorCode`, for example `SlotUnavailableException` → `SLOT_UNAVAILABLE`. Don't throw a bare `Error`. Error codes live in `packages/shared` so the web app can react to them.
 - Public error messages must never reveal internals. That means which rate limit was hit, whether a phone or email is registered, or stack traces.
 
 ### Auth
@@ -106,7 +139,7 @@ modules/bookings/
 
 ### Background jobs
 - One job class per job, each using `@nestjs/schedule`.
-- Wrap each tick in a Postgres advisory lock so the job runs once even if more than one instance is running.
+- Wrap each tick in a Postgres advisory lock so the job runs once even if more than one instance is running. Take the lock on the direct connection, or use a transaction-level lock (`pg_try_advisory_xact_lock`), because session locks don't hold through Neon's pooled connection.
 - Catch and report errors to Sentry. A failed tick must never crash the process.
 
 ### In-memory state
@@ -118,10 +151,31 @@ These stay in memory for now, which assumes a single instance:
 
 Keep each behind a small service so it can move to Postgres or Redis later without touching callers.
 
-### General
+## Conventions: web
+
+### Working without the API (mock mode)
+- All API calls go through `apps/web/src/lib/api/`. Components never call `fetch` directly.
+- Each domain has one file (for example `lib/api/bookings.ts`) that exports a typed object built from the shared contract. It has a **live** implementation, which calls the API and unwraps the envelope, and a **mock** implementation in `lib/api/mocks/`.
+- `NEXT_PUBLIC_API_MODE=mock` uses the mocks, and `live` uses the real API at `NEXT_PUBLIC_API_URL`. Default to `mock` until the API domain exists.
+- Mocks return realistic data shaped exactly like the contract. They also simulate errors, using the real `errorCode` values, and a short delay, so loading and error states get built too.
+- Mock data is fictional. Never copy real client names, phone numbers or health details from the old database into fixtures.
+- When an API domain is merged, switch that screen to `live` and check it end to end. Fix contract mismatches in `packages/shared`, not with workarounds in the component.
+
+### Components and pages
+- Prefer server components. Use client components only for interactivity: forms, the booking flow, the CRM tables and drawers, the chat widget.
+- Build on the shadcn/ui components in `components/ui`. Don't hand-roll dialogs, drawers, dropdowns or tables.
+- Every page works on mobile first. The patient-facing pages are the priority for the redesign.
+- Show the API's `message` for user-facing errors. Never show raw error objects or stack traces.
+- Accessibility basics on every screen: labels on inputs, keyboard access, visible focus and enough colour contrast.
+
+### Business logic in the web app
+- Never re-implement a business rule in a component. Import it from `packages/shared/rules`: the price by nationality, the 24-hour cutoff, hold expiry and so on. The price on screen must be the price charged.
+- The web app never decides anything the API enforces. It can hide a button, but the API is what refuses the action.
+
+## Conventions: general
 - No `any`. Put shared enums and types in `packages/shared`.
-- Put pure business rules (price by nationality, the 24-hour cutoff, hold expiry, strike thresholds) in `packages/shared` as plain functions so the API and the web app agree.
-- Read configuration through the typed config service, never `process.env` inside a module.
+- Put pure business rules (price by nationality, the 24-hour cutoff, hold expiry, strike thresholds) in `packages/shared/rules` as plain functions so the API and the web app agree.
+- Read configuration through the typed config (API) or `lib/env.ts` (web), never `process.env` scattered through the code.
 - Keep thresholds as named constants at the top of the domain, or as env vars where the old app used env vars.
 - Never log secrets, tokens, OTP codes or clinical text.
 
@@ -134,7 +188,7 @@ Short reminders only. The full detail is in the old repo's `CLAUDE.md`.
 - **Known calendar bugs to fix while porting:**
   - Start times were compared as strings, which flagged every booked slot as a false conflict.
   - All-day events were ignored.
-- **Price:** the currency comes from **nationality** (Sri Lankan pays LKR, everyone else pays USD) through one function, `rateForResidency`. A slot priced in only one currency charges that price to everyone.
+- **Price:** the currency comes from **nationality** (Sri Lankan pays LKR, everyone else pays USD) through one function, `rateForResidency`. A slot priced in only one currency charges that price to everyone. Before login there's no nationality, so the booking page shows the base price with a note.
 - **Session types:** a slot copies its session type's duration and prices when it's created and never reads them back later.
 - **Notes:** `bookings.staff_notes` is separate from `bookings.notes`, which is the client's own text. Never overwrite the client's notes.
 - **Holds:** a checkout hold lasts 15 minutes and is released by a 1-minute job, never inside a request.
@@ -145,7 +199,7 @@ Short reminders only. The full detail is in the old repo's `CLAUDE.md`.
 - **Public AI assistant:**
   - It uses Haiku.
   - The model only classifies each message. The redirect, unknown-question and rate-limit replies are fixed strings in code.
-  - Nothing is stored except ratings.
+  - Nothing is stored except ratings. The widget keeps the conversation in memory only (gone on refresh).
 - **Ask Remedist:**
   - It uses Sonnet over a **read-only** database connection.
   - The secret tables are blocked.
@@ -153,27 +207,52 @@ Short reminders only. The full detail is in the old repo's `CLAUDE.md`.
   - Clinical answers are hidden from other users.
 - **Claude usage:** every Claude call goes through one service that logs token usage, which feeds the cost estimates.
 
+## Parallel work with Git worktrees
+
+The API and the web app are developed at the same time, each in its own worktree and its own Claude Code session:
+
+| Folder | Branches | Works on |
+|--------|----------|----------|
+| `remedist` (main checkout) | `main` only | merging, shared setup, nothing else |
+| `remedist-api` | `feat/api-<domain>` | `apps/api` |
+| `remedist-web` | `feat/web-<area>` | `apps/web` |
+
+Rules for a session working in a worktree:
+- **Stay in your app.** In `remedist-api`, change only `apps/api`. In `remedist-web`, change only `apps/web`. Never edit the other app's files.
+- **Shared files need care.** `packages/shared`, root `package.json`, `turbo.json`, `pnpm-workspace.yaml` and this file are touched by both sides. Keep any change to them in its own small commit and say so in the summary, so it can be merged to `main` early.
+- **Don't touch the other worktree's folder or branch.** Never check out, reset, rebase or delete a branch you aren't working on.
+- **Each worktree has its own `node_modules` and `.env`.** Worktrees don't share untracked files. If something is missing, say so; don't copy secrets between folders yourself.
+- **Ports are fixed:** the API on 3001, the web app on 3000. Don't change them to avoid a clash; the other app is supposed to be running.
+- **Pick up `main` before starting a new domain or area:** `git switch -c feat/api-<next> main` (or `feat/web-<next>`) after `main` has the latest merges. If the other side changed a shared contract, rebase on `main` rather than copying the change.
+- **Lockfile conflicts:** don't hand-edit `pnpm-lock.yaml`. Take either side, run `pnpm install`, and commit the result.
+
 ## Workflow
 
-- When you're given a clickup task to start - get the task from clickup and start dont send any other request to clickup(eg: status updates, adding comments etc..).
-- Build one domain at a time, following the task list. Port the domain completely (DTOs, repository, service, controller, integration) before moving on.
-- Before writing code for a domain, list the old routes it replaces and the behaviour each one has.
-- Use a feature branch per domain and keep commits small. Never commit `.env` or keys.
-- Update `.env.example` whenever a new env var is added.
+- When you're given a ClickUp task to start, get the task from ClickUp and start. Don't send any other request to ClickUp (for example status updates or comments).
+- Build one domain (API) or one area (web) at a time, following the task list. Finish it completely before moving on.
+- Before writing code for an API domain, list the old routes it replaces and the behaviour each one has. Before building a screen, list what the old page does, including its edge cases.
+- Use a feature branch per domain or area and keep commits small. Never commit `.env` or keys.
+- Update `.env.example` (in the right app) whenever a new env var is added.
 - Ask before adding a new dependency that isn't listed in the stack above.
 - Ask before changing a business rule, even if it looks like a bug. Report it instead.
-- **Testing is deferred** to its own phase. Don't add test suites unless asked. Do check each endpoint by hand, using Swagger or curl, before calling a domain done.
+- **Testing is deferred** to its own phase. Don't add test suites unless asked. Do check each endpoint by hand (Swagger or curl), and each screen in the browser on mobile and desktop widths, before calling it done.
 
 ## Environment
 
-See `.env.example` for the full list. The main ones:
+Each app has its own `.env` and `.env.example`. The main ones:
 
-- `DATABASE_URL` (pooled), `DATABASE_DIRECT_URL` (migrations), `DATABASE_AI_URL` (read-only role for Ask Remedist)
+**API (`apps/api/.env`)**
+- `PORT` (3001), `WEB_URL` (for CORS and links in emails), `APP_URL`
+- `DATABASE_URL` (pooled), `DATABASE_DIRECT_URL` (migrations and job locks), `DATABASE_AI_URL` (read-only role for Ask Remedist)
 - `JWT_SECRET`, `ADMIN_JWT_SECRET`
 - `PAYHERE_MERCHANT_ID`, `PAYHERE_MERCHANT_SECRET`, `PAYHERE_MODE`
 - `TWILIO_*`, `RESEND_API_KEY`
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`
 - `ANTHROPIC_API_KEY`, `ASK_REMEDIST_MODEL`
 - `TURNSTILE_SECRET_KEY`, `SENTRY_DSN`
-- `APP_URL`, `WEB_URL`
 - `DAILY_OTP_SEND_CAP`, `OTP_CODE_TTL_MINUTES`, `ASSISTANT_SESSION_MESSAGE_CAP`, `AVAILABILITY_SYNC_CRON`
+
+**Web (`apps/web/.env.local`)**
+- `NEXT_PUBLIC_API_MODE` (`mock` or `live`), `NEXT_PUBLIC_API_URL` (`http://localhost:3001/api/v1`)
+- `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, `NEXT_PUBLIC_WHATSAPP_NUMBER`
+- `NEXT_PUBLIC_SENTRY_DSN`
