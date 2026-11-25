@@ -5,8 +5,11 @@
   "description": "Remedist API (NestJS)",
   "scripts": {
     "build": "nest build",
-    "dev": "nest start --watch",
-    "start": "node dist/main",
+    "dev": "nest start --watch --env-file .env",
+    "start": "node --env-file-if-exists=.env dist/main",
+    "migrate": "nest build && node --env-file-if-exists=.env dist/database/cli/migrate.js",
+    "migrate:status": "nest build && node --env-file-if-exists=.env dist/database/cli/migrate.js --status",
+    "seed": "nest build && node --env-file-if-exists=.env dist/database/cli/seed.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -14,14 +17,20 @@
     "@nestjs/core": "^11.2.11",
     "@nestjs/platform-express": "^11.2.11",
     "@remedist/shared": "workspace:*",
+    "bcryptjs": "^3.0.3",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.4",
+    "pg": "^8.23.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },
   "devDependencies": {
+    "@neon/config": "^1.14.6",
     "@nestjs/cli": "^11.0.24",
     "@nestjs/schematics": "^11.0.0",
     "@types/express": "^5.0.6",
     "@types/node": "^24.19.2",
+    "@types/pg": "^8.23.1",
     "typescript": "~5.9.3"
   }
 }

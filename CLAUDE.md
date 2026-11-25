@@ -46,8 +46,9 @@ pnpm --filter api dev        # API only (http://localhost:3001)
 pnpm --filter web dev        # web only (http://localhost:3000)
 pnpm --filter api build
 pnpm --filter web build
-pnpm --filter api migrate    # apply pending migrations
-pnpm --filter api seed       # starting data
+pnpm --filter api migrate          # build, then apply pending migrations
+pnpm --filter api migrate:status   # build, then list applied / pending migrations
+pnpm --filter api seed             # build, then load starting data (staff logins, session type, FAQs, ailments)
 pnpm lint
 pnpm typecheck
 ```
@@ -110,27 +111,75 @@ modules/bookings/
 ### Controllers
 - Controllers stay thin. No SQL and no business rules in them.
 - Group routes by audience under `/api/v1`: `public/…`, `portal/…` (logged-in client), `admin/…` (staff), `webhooks/…`.
-- Every request body, query and param goes through a DTO or a pipe: `ParseUUIDPipe`, `ParseIntPipe`, `ParseEnumPipe`, plus the custom date, time and phone pipes in `common/pipes`.
-- The global `ValidationPipe` uses `whitelist: true`, `forbidNonWhitelisted: true` and `transform: true`.
+- Every request body, query and param goes through a DTO or a pipe: `ParseUUIDPipe`, `ParseIntPipe`, `ParseEnumPipe`, plus the custom `ParseDateOnlyPipe`, `ParseTimeOfDayPipe` and `ParsePhonePipe` in `common/pipes` (pass `{ optional: true }` for optional query values).
+- In DTOs, use `@IsDateOnly()` (`YYYY-MM-DD`), `@IsTimeOfDay()` (`HH:MM`) and `@IsPhone()` from `common/validation`. `@IsPhone()` also normalises to `+<digits>`, so the handler gets the stored form. The rules behind them are in `packages/shared/rules`.
+- The global `ValidationPipe` uses `whitelist: true`, `forbidNonWhitelisted: true` and `transform: true`. Errors come back as `VALIDATION_FAILED` with one `{ field, messages }` per field (dotted paths for nested values). Query and param values are strings: convert them explicitly with `@Type(() => Number)`, never with implicit conversion.
 
 ### Responses
 - Successful responses are wrapped by `ResponseInterceptor` as `{ success, statusCode, message, data, meta? }`. Set the message with `@ResponseMessage('...')`.
 - Errors are shaped by `AllExceptionsFilter` as `{ success: false, statusCode, message, errorCode, errors?, path, timestamp }`.
 - Use `@SkipEnvelope()` only where the caller needs a raw response: the PayHere notify webhook, Twilio inbound, the Google OAuth callback page and file downloads.
-- Throw typed domain exceptions with a stable `errorCode`, for example `SlotUnavailableException` → `SLOT_UNAVAILABLE`. Don't throw a bare `Error`. Error codes live in `packages/shared` so the web app can react to them.
+- To return `meta` (for example pagination) next to `data`, return `new WithMeta(data, meta)` from the handler (`common/responses/with-meta.ts`).
+- Throw typed domain exceptions with a stable `errorCode`, for example `SlotUnavailableException` → `SLOT_UNAVAILABLE`. Don't throw a bare `Error`. Error codes live in `packages/shared/src/enums/error-code.ts` so the web app can react to them.
+  - Each one extends `DomainException` (`common/exceptions`) with a fixed status, code and message. Generic ones (`ValidationFailedException`, `ResourceNotFoundException`, `ServiceUnavailableDomainException`) are in `common/exceptions/common.exceptions.ts`.
+  - **Only a `DomainException`'s message reaches the client.** Nest's built-in exceptions, body-parser errors and anything unexpected get a fixed message for their status, because their text can echo the URL (with tokens in the query string) or internals. If the user needs a specific message, throw a `DomainException`.
+  - Pass the underlying error as `cause` when wrapping one. The filter logs 5xx with the full cause chain.
 - Public error messages must never reveal internals. That means which rate limit was hit, whether a phone or email is registered, or stack traces.
 
 ### Auth
-- Use JWT guards: `ClientAuthGuard`, `StaffAuthGuard`, `OwnerGuard`, `AskRemedistGuard`. Get the user with `@CurrentUser()`.
-- Check `token_version` so "log out everywhere" revokes old tokens.
-- The `ask_remedist` role must be rejected by every normal staff route.
+- Use JWT guards: `ClientAuthGuard` for patients and `StaffAuthGuard` for staff. Get the user with `@CurrentUser()`.
+- Staff routes check **permissions, never role names**. Roles and permissions are defined once in `packages/shared/src/enums/role.ts` (`ROLE_DEFINITIONS`); the seed copies them into `auth.roles` and `auth.role_permissions`. One person can hold several roles: Rauzan is `owner` + `doctor`.
+- Role rules:
+  - `super_admin` is the developer's system role. It's granted only by seed or CLI, never from the CRM, and requires MFA. Its reads of clinical records are written to `clinical.access_log` like everyone else's.
+  - Only `doctor` writes and signs clinical records.
+  - An owner can't grant `super_admin` and can't remove the last owner.
+  - `ask_remedist` holds only `ai.ask`, so every other staff route rejects it.
+  - A doctor is bookable only with a `practitioners` row.
+- Check `token_version` (on `auth.staff_users` and `auth.patient_accounts`) so "log out everywhere" revokes old tokens. Refresh tokens rotate through `auth.sessions`: reusing a replaced token revokes the chain.
+- Email verification, password reset and staff invites use `auth.one_time_tokens`. Only token hashes are stored.
 
 ### Database
 - Only repositories run SQL, and every query is parameterised.
 - Use a transaction for any multi-step write.
 - Store timestamps as `timestamptz` and compare them as dates, never as strings. The old app had bugs from comparing differently formatted time strings.
 - Every schema change is a new numbered migration. Never edit a migration that has already run.
-- Don't store values that can be derived. For example, the amount due and the strike count are always computed.
+  - Files are `apps/api/src/database/migrations/NNNN_lowercase_name.sql`, numbered after the latest one. The runner applies each in its own transaction on the direct URL, under an advisory lock, and records a checksum in `schema_migrations`. It refuses to run if an applied file was edited or a new file is numbered before an applied one.
+  - In production, run `node dist/database/cli/migrate.js` after the build, before starting the API.
+- The design follows the review in `docs/database-review-2026-11-25.md`. Follow the conventions at the top of `0001_foundation.sql`:
+  - **Postgres schemas:**
+    - `public`: business data;
+    - `auth`: logins, roles, sessions, tokens, OTP and abuse ledgers, integration secrets;
+    - `clinical`: health data;
+    - `ai`: the views Ask Remedist may read.
+
+    Repositories always qualify `auth.` and `clinical.` table names.
+  - **Money:** use the `money_minor` domain, which is `BIGINT` minor units (LKR 45,000.00 is `4500000`). Never use floats; rates and percentages are `NUMERIC`.
+  - **Shared domains:** use `currency_code`, `message_channel`, `phone_e164` (matches `isValidPhone`) and `country_code` (ISO 3166-1 alpha-2) instead of repeating the rules. IP addresses are `INET`.
+  - **Rows and constraints:**
+    - `gen_random_uuid()` ids and `timestamptz` everywhere.
+    - `updated_at` plus the `set_updated_at()` trigger on every mutable table.
+    - An index on every foreign key.
+    - A `CHECK` listing the snake_case values of every enum-like column. Keep each list in step with its enum in `packages/shared`.
+  - **Scheduling:** slots and bookings carry `practitioner_id`. The overlap rule is per practitioner.
+- **Derive, don't store.** Balances come from the payment ledger:
+  - `payments`, with many per booking;
+  - `payment_allocations`, `booking_adjustments` and `credit_transactions`;
+  - the views `booking_balances`, `contact_credit_balances` and `shop_order_totals`.
+
+  Never add a running total column. The strike count is `COUNT(*)` on `contact_strikes`.
+- **Audit:** every change a person or integration makes goes to `public.audit_log` through one repository helper. Every read or write of a clinical record goes to `clinical.access_log`.
+- **Clinical data is never deleted.** The app's database role has no `DELETE` on `clinical`, and contacts are archived (`archived_at`) instead of deleted. A deletion request uses a documented anonymisation routine. Check Sri Lanka's PDPA and medical-record retention rules first.
+- **Database roles:** `remedist_app` (the API) and `remedist_ai_readonly` (Ask Remedist) are password-less group roles created by `0001`, with default grants on every new table. A login role made in Neon is added with `GRANT remedist_app TO <login>`. Migrations run as the database owner.
+- **Deferred designs** (in the review):
+  - encounters, SOAP notes, conditions, treatments, allergies and medications: wait for the clinical records change request;
+  - the `ai` views: added with Ask Remedist;
+  - the retention job (prune OTP and login attempts after 90 days, and so on): added with the background jobs.
+- Seeds (`src/database/seeds`) must be safe to re-run:
+  - Roles and permissions are synced from `packages/shared` on every run.
+  - An existing staff login is never changed.
+  - Content is loaded only into an empty table, so re-seeding never restores something staff deleted.
+  - Staff passwords come only from the `SEED_*` env vars, never from code.
+  - Fixed reference data that staff can't edit (for example `anatomy_segments`) goes in a migration instead.
 
 ### Integrations
 - Each third-party service sits behind a provider interface with a **real** and a **demo** implementation.
@@ -175,7 +224,8 @@ Keep each behind a small service so it can move to Postgres or Redis later witho
 ## Conventions: general
 - No `any`. Put shared enums and types in `packages/shared`.
 - Put pure business rules (price by nationality, the 24-hour cutoff, hold expiry, strike thresholds) in `packages/shared/rules` as plain functions so the API and the web app agree.
-- Read configuration through the typed config (API) or `lib/env.ts` (web), never `process.env` scattered through the code.
+- Read configuration through the typed config (API) or `lib/env.ts` (web), never `process.env` scattered through the code. In the API, inject `AppConfig` (`src/config`). A new env var goes in `config/env.validation.ts` (rules and local default), `AppConfig` and `.env.example`. The API refuses to start, listing every bad variable by name, if one is invalid.
+- Log with Nest's `Logger` (`new Logger(MyService.name)`). Logs are JSON in production and text locally; `LOG_LEVEL` sets the lowest level. Every request gets an `x-request-id` and one access-log line (method, path without query string, status, duration).
 - Keep thresholds as named constants at the top of the domain, or as env vars where the old app used env vars.
 - Never log secrets, tokens, OTP codes or clinical text.
 
@@ -188,13 +238,13 @@ Short reminders only. The full detail is in the old repo's `CLAUDE.md`.
 - **Known calendar bugs to fix while porting:**
   - Start times were compared as strings, which flagged every booked slot as a false conflict.
   - All-day events were ignored.
-- **Price:** the currency comes from **nationality** (Sri Lankan pays LKR, everyone else pays USD) through one function, `rateForResidency`. A slot priced in only one currency charges that price to everyone. Before login there's no nationality, so the booking page shows the base price with a note.
+- **Price:** the currency comes from **nationality** (`contacts.nationality = 'LK'` pays LKR, everyone else pays USD) through one function, `rateForResidency`. A slot priced in only one currency charges that price to everyone. Before login there's no nationality, so the booking page shows the base price with a note.
 - **Session types:** a slot copies its session type's duration and prices when it's created and never reads them back later.
 - **Notes:** `bookings.staff_notes` is separate from `bookings.notes`, which is the client's own text. Never overwrite the client's notes.
 - **Holds:** a checkout hold lasts 15 minutes and is released by a 1-minute job, never inside a request.
 - **Cutoff:** the public slot list hides slots less than 24 hours away. Staff, walk-in and pro-bono listings still see them.
 - **Strikes:** a no-show or a late cancellation of a confirmed booking adds a strike. The count is always computed. From 2 strikes, a pay-after client raises a review notification.
-- **Pro-bono:** reclaiming a slot reuses the same assign-session logic. Each pro-bono booking writes a $0 `waived` payment row.
+- **Pro-bono:** reclaiming a slot reuses the same assign-session logic. Each pro-bono booking writes a $0 `waived` payment row and a `probono_waiver` adjustment for the full rate.
 - **OTP order:** blocklist, then the daily cap, then per-phone/IP windows, then the progressive cooldown. Turnstile is required from the second send onward.
 - **Public AI assistant:**
   - It uses Haiku.
@@ -242,8 +292,9 @@ Rules for a session working in a worktree:
 Each app has its own `.env` and `.env.example`. The main ones:
 
 **API (`apps/api/.env`)**
-- `PORT` (3001), `WEB_URL` (for CORS and links in emails), `APP_URL`
-- `DATABASE_URL` (pooled), `DATABASE_DIRECT_URL` (migrations and job locks), `DATABASE_AI_URL` (read-only role for Ask Remedist)
+- `NODE_ENV`, `PORT` (3001), `WEB_URL` (for CORS and links in emails), `APP_URL`, `LOG_LEVEL`. `WEB_URL` and `APP_URL` are required in production.
+- `DATABASE_URL` (pooled), `DATABASE_URL_UNPOOLED` (direct: migrations and job locks), `DATABASE_AI_URL` (read-only role for Ask Remedist). The first two are Neon's own names: run `neon env pull` in `apps/api` to fill them in `.env` without touching other lines.
+- Local development uses the Neon `dev` branch, pinned in the git-ignored `apps/api/.neon` (`neon checkout dev`). Never point a local `.env` at `production`.
 - `JWT_SECRET`, `ADMIN_JWT_SECRET`
 - `PAYHERE_MERCHANT_ID`, `PAYHERE_MERCHANT_SECRET`, `PAYHERE_MODE`
 - `TWILIO_*`, `RESEND_API_KEY`
