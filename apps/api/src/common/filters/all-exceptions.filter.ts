@@ -2,6 +2,7 @@ import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logge
 import { ApiError, ApiFieldError, ErrorCode } from '@remedist/shared';
 import type { Request, Response } from 'express';
 import { DomainException } from '../exceptions/domain.exception';
+import { getRequestId, pathWithoutQuery } from '../logging/request-logging.middleware';
 
 const STATUS_TO_CODE: Partial<Record<number, ErrorCode>> = {
   [HttpStatus.BAD_REQUEST]: ErrorCode.BAD_REQUEST,
@@ -65,14 +66,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const http = host.switchToHttp();
     const request = http.getRequest<Request>();
     const response = http.getResponse<Response>();
-    // Drop the query string: it can carry tokens (password reset, OAuth state).
-    const path = request.originalUrl.split('?')[0] ?? request.originalUrl;
+    const path = pathWithoutQuery(request);
 
     const resolved = this.resolve(exception);
 
     if (resolved.status >= 500) {
       this.logger.error(
-        `${request.method} ${path} -> ${resolved.status}: ${this.describe(exception)}`,
+        `${request.method} ${path} -> ${resolved.status} [${getRequestId(request) ?? '-'}]: ${this.describe(exception)}`,
         exception instanceof Error ? exception.stack : undefined,
       );
     }

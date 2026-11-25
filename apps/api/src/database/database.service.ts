@@ -1,7 +1,8 @@
 import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
-import { DatabaseConfig, loadDatabaseConfig } from './database.config';
+import { AppConfig } from '../config/app-config';
+import { withFullTlsVerification } from './database-url';
 import {
   DIRECT_POOL_MAX_CONNECTIONS,
   POOL_CONNECTION_TIMEOUT_MS,
@@ -50,18 +51,17 @@ function describeError(error: unknown): string {
 @Injectable()
 export class DatabaseService implements Queryable, OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(DatabaseService.name);
-  private readonly config: DatabaseConfig;
   private readonly pool: Pool;
   private readonly directPool: Pool;
 
-  constructor() {
-    this.config = loadDatabaseConfig();
-    this.pool = this.createPool(this.config.url, POOL_MAX_CONNECTIONS, 'pooled');
-    this.directPool = this.createPool(this.config.directUrl, DIRECT_POOL_MAX_CONNECTIONS, 'direct');
+  constructor(private readonly config: AppConfig) {
+    const { url, directUrl } = config.database;
+    this.pool = this.createPool(withFullTlsVerification(url), POOL_MAX_CONNECTIONS, 'pooled');
+    this.directPool = this.createPool(withFullTlsVerification(directUrl), DIRECT_POOL_MAX_CONNECTIONS, 'direct');
   }
 
   async onModuleInit(): Promise<void> {
-    const host = new URL(this.config.url).hostname;
+    const host = new URL(this.config.database.url).hostname;
 
     for (let attempt = 1; attempt <= STARTUP_CONNECT_ATTEMPTS; attempt++) {
       try {
