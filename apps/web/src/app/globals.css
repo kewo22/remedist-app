@@ -1,0 +1,151 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+/*
+  Remedist design tokens.
+  Source: the live site's palette (remedist-backend/public/css/site.css): cadmium green,
+  pearl/off-white and near-black, with a rust tone for errors and a muted gold for ratings.
+  shadcn/ui components read the semantic names (--primary, --border...); brand-specific
+  extras (--brand-*) are for marketing pages. Change a colour here, never inline in a component.
+  Light theme only: the brand has no dark scheme.
+*/
+
+:root {
+  /* Brand palette */
+  --brand-green: #1e6b3e; /* cadmium green: primary actions, links */
+  --brand-green-deep: #14432a; /* headings accents, hover on green */
+  --brand-sage: #2e7d4f;
+  --brand-mint: #e7f1ea; /* soft green surface */
+  --brand-porcelain: #f7f5ee; /* page background */
+  --brand-paper: #fffefa; /* cards, panels */
+  --brand-ink: #14140f; /* body text */
+  --brand-ink-deep: #0e0f0b; /* headings */
+  --brand-stone: #6e6b60; /* secondary text */
+  --brand-rust: #a6512e; /* errors, destructive */
+  --brand-gold: #b0893e; /* star ratings */
+  --brand-whatsapp: #25d366;
+
+  /* Semantic tokens used by shadcn/ui */
+  --radius: 0.625rem;
+  --background: var(--brand-porcelain);
+  --foreground: var(--brand-ink);
+  --card: var(--brand-paper);
+  --card-foreground: var(--brand-ink);
+  --popover: var(--brand-paper);
+  --popover-foreground: var(--brand-ink);
+  --primary: var(--brand-green);
+  --primary-foreground: #ffffff;
+  --secondary: var(--brand-mint);
+  --secondary-foreground: var(--brand-green-deep);
+  --muted: #efece2;
+  --muted-foreground: var(--brand-stone);
+  --accent: var(--brand-mint);
+  --accent-foreground: var(--brand-green-deep);
+  --destructive: var(--brand-rust);
+  --destructive-foreground: #ffffff;
+  --success: var(--brand-sage);
+  --success-foreground: #ffffff;
+  --warning: #8a6420; /* darker gold, readable as text on porcelain */
+  --warning-foreground: #ffffff;
+  --border: rgb(14 15 11 / 0.12);
+  --input: rgb(14 15 11 / 0.22);
+  --ring: var(--brand-green);
+  --shadow-soft: 0 18px 40px -22px rgb(14 15 11 / 0.35);
+}
+
+@theme inline {
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-cormorant), ui-serif, Georgia, serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-brand-green: var(--brand-green);
+  --color-brand-green-deep: var(--brand-green-deep);
+  --color-brand-sage: var(--brand-sage);
+  --color-brand-mint: var(--brand-mint);
+  --color-brand-porcelain: var(--brand-porcelain);
+  --color-brand-paper: var(--brand-paper);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-ink-deep: var(--brand-ink-deep);
+  --color-brand-stone: var(--brand-stone);
+  --color-brand-rust: var(--brand-rust);
+  --color-brand-gold: var(--brand-gold);
+  --color-brand-whatsapp: var(--brand-whatsapp);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --shadow-soft: var(--shadow-soft);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    line-height: 1.6;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display text-brand-ink-deep font-semibold;
+    line-height: 1.15;
+  }
+  /* Visible keyboard focus everywhere, matching the old site. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Small uppercase label above section headings (the old site's .eyebrow). */
+  .eyebrow {
+    @apply font-mono text-[11.5px] tracking-[0.16em] uppercase text-brand-green-deep flex items-center gap-2.5;
+  }
+  .eyebrow::before {
+    content: '';
+    @apply inline-block h-px w-6 bg-brand-green;
+  }
+}
