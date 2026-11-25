@@ -18,6 +18,16 @@ export const ErrorCode = {
   TOO_MANY_REQUESTS: 'TOO_MANY_REQUESTS',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
   SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
+
+  // Auth
+  /** Wrong email or password. Deliberately doesn't say which. */
+  INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
+  /** The access token or refresh session is missing, expired or revoked: sign in again. */
+  SESSION_EXPIRED: 'SESSION_EXPIRED',
+  /** Another tab refreshed the session a moment ago: retry the refresh once. */
+  REFRESH_CONFLICT: 'REFRESH_CONFLICT',
+  /** This login needs two-factor authentication, which isn't available yet. */
+  MFA_REQUIRED: 'MFA_REQUIRED',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
