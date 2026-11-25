@@ -110,8 +110,9 @@ modules/bookings/
 ### Controllers
 - Controllers stay thin. No SQL and no business rules in them.
 - Group routes by audience under `/api/v1`: `public/…`, `portal/…` (logged-in client), `admin/…` (staff), `webhooks/…`.
-- Every request body, query and param goes through a DTO or a pipe: `ParseUUIDPipe`, `ParseIntPipe`, `ParseEnumPipe`, plus the custom date, time and phone pipes in `common/pipes`.
-- The global `ValidationPipe` uses `whitelist: true`, `forbidNonWhitelisted: true` and `transform: true`.
+- Every request body, query and param goes through a DTO or a pipe: `ParseUUIDPipe`, `ParseIntPipe`, `ParseEnumPipe`, plus the custom `ParseDateOnlyPipe`, `ParseTimeOfDayPipe` and `ParsePhonePipe` in `common/pipes` (pass `{ optional: true }` for optional query values).
+- In DTOs, use `@IsDateOnly()` (`YYYY-MM-DD`), `@IsTimeOfDay()` (`HH:MM`) and `@IsPhone()` from `common/validation`. `@IsPhone()` also normalises to `+<digits>`, so the handler gets the stored form. The rules behind them are in `packages/shared/rules`.
+- The global `ValidationPipe` uses `whitelist: true`, `forbidNonWhitelisted: true` and `transform: true`. Errors come back as `VALIDATION_FAILED` with one `{ field, messages }` per field (dotted paths for nested values). Query and param values are strings: convert them explicitly with `@Type(() => Number)`, never with implicit conversion.
 
 ### Responses
 - Successful responses are wrapped by `ResponseInterceptor` as `{ success, statusCode, message, data, meta? }`. Set the message with `@ResponseMessage('...')`.
@@ -179,7 +180,8 @@ Keep each behind a small service so it can move to Postgres or Redis later witho
 ## Conventions: general
 - No `any`. Put shared enums and types in `packages/shared`.
 - Put pure business rules (price by nationality, the 24-hour cutoff, hold expiry, strike thresholds) in `packages/shared/rules` as plain functions so the API and the web app agree.
-- Read configuration through the typed config (API) or `lib/env.ts` (web), never `process.env` scattered through the code.
+- Read configuration through the typed config (API) or `lib/env.ts` (web), never `process.env` scattered through the code. In the API, inject `AppConfig` (`src/config`). A new env var goes in `config/env.validation.ts` (rules and local default), `AppConfig` and `.env.example`. The API refuses to start, listing every bad variable by name, if one is invalid.
+- Log with Nest's `Logger` (`new Logger(MyService.name)`). Logs are JSON in production and text locally; `LOG_LEVEL` sets the lowest level. Every request gets an `x-request-id` and one access-log line (method, path without query string, status, duration).
 - Keep thresholds as named constants at the top of the domain, or as env vars where the old app used env vars.
 - Never log secrets, tokens, OTP codes or clinical text.
 
@@ -246,7 +248,7 @@ Rules for a session working in a worktree:
 Each app has its own `.env` and `.env.example`. The main ones:
 
 **API (`apps/api/.env`)**
-- `PORT` (3001), `WEB_URL` (for CORS and links in emails), `APP_URL`
+- `NODE_ENV`, `PORT` (3001), `WEB_URL` (for CORS and links in emails), `APP_URL`, `LOG_LEVEL`. `WEB_URL` and `APP_URL` are required in production.
 - `DATABASE_URL` (pooled), `DATABASE_URL_UNPOOLED` (direct: migrations and job locks), `DATABASE_AI_URL` (read-only role for Ask Remedist). The first two are Neon's own names: run `neon env pull` in `apps/api` to fill them in `.env` without touching other lines.
 - Local development uses the Neon `dev` branch, pinned in the git-ignored `apps/api/.neon` (`neon checkout dev`). Never point a local `.env` at `production`.
 - `JWT_SECRET`, `ADMIN_JWT_SECRET`
