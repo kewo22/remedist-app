@@ -75,7 +75,9 @@ apps/web/src/
     portal/               client portal, intake forms, payments
     kiosk/                walk-in page (tablet layout)
     crm/                  one route per CRM panel
-  components/ui/          shadcn/ui components
+    ui-kit/               dev-only reference of every shared component (404 in production)
+  components/ui/          shadcn/ui components, restyled to the brand
+  components/common/      app-wide building blocks: DataTable, ConfirmDialog, ErrorAlert, EmptyState
   components/<area>/      components for one area (booking, crm, portal...)
   lib/api/                API client, one file per domain, mocks/
   lib/                    other helpers (formatting, auth, env)
@@ -204,7 +206,10 @@ Keep each behind a small service so it can move to Postgres or Redis later witho
 
 ### Working without the API (mock mode)
 - All API calls go through `apps/web/src/lib/api/`. Components never call `fetch` directly.
-- Each domain has one file (for example `lib/api/bookings.ts`) that exports a typed object built from the shared contract. It has a **live** implementation, which calls the API and unwraps the envelope, and a **mock** implementation in `lib/api/mocks/`.
+- Each domain has one file (for example `lib/api/bookings.ts`) that exports a typed object built from the shared contract. It has a **live** implementation, which calls the API and unwraps the envelope, and a **mock** implementation in `lib/api/mocks/`. Pick between them with `selectApi` (`lib/api/mode.ts`); `lib/api/health.ts` is the template.
+- `lib/api/client.ts` is the only code that calls `fetch`. It sends cookies (`credentials: 'include'`), returns `data`, throws `ApiClientError` (with `errorCode` and `fieldErrors`) or `NetworkError`, and with `auth: 'client' | 'staff'` refreshes the session once on a 401. Login tokens are httpOnly cookies set by the API; the web app never stores tokens. Server components forward the session with `forwardedAuthHeaders()` from `lib/api/server.ts`.
+- Show errors with `getErrorMessage(error)` or `<ErrorAlert>`; map validation errors onto fields with `getFieldErrors(error)`.
+- Colours and fonts are tokens in `app/globals.css` (from the old site's palette). Use the token classes (`bg-primary`, `text-muted-foreground`, `bg-brand-mint`...), never hex values in components.
 - `NEXT_PUBLIC_API_MODE=mock` uses the mocks, and `live` uses the real API at `NEXT_PUBLIC_API_URL`. Default to `mock` until the API domain exists.
 - Mocks return realistic data shaped exactly like the contract. They also simulate errors, using the real `errorCode` values, and a short delay, so loading and error states get built too.
 - Mock data is fictional. Never copy real client names, phone numbers or health details from the old database into fixtures.
