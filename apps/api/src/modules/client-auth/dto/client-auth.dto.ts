@@ -7,6 +7,7 @@ import {
   normalizeEmail,
   type ClientGoogleSignInRequest,
   type ClientLoginRequest,
+  type ClientPhoneSignInRequest,
   type ClientRegisterRequest,
   type ClientVerifyEmailRequest,
   type ForgotPasswordRequest,
@@ -73,6 +74,15 @@ export class ClientLoginDto implements ClientLoginRequest {
   @IsNotEmpty()
   @IsString()
   password!: string;
+}
+
+export class ClientPhoneSignInDto implements ClientPhoneSignInRequest {
+  // A short JWT; the cap only stops huge bodies. Optional here so a missing token gets the same
+  // 401 PHONE_NOT_VERIFIED as a bad one (the service checks it), not a validation error.
+  @MaxLength(2048)
+  @IsString()
+  @IsOptional()
+  phoneVerificationToken!: string;
 }
 
 export class ClientGoogleSignInDto implements ClientGoogleSignInRequest {

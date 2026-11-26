@@ -230,6 +230,19 @@ export class OtpRepository {
     });
   }
 
+  /**
+   * Spends the proof token issued for a verified phone code. Conditional, so two requests can't
+   * both use it. False if the row isn't a verified code for this phone and purpose, or was used.
+   */
+  async useProof(id: string, phoneNumber: string, purpose: OtpPurpose, db: Queryable = this.db): Promise<boolean> {
+    const { rowCount } = await db.query(
+      `UPDATE auth.otp_requests SET proof_used_at = now()
+       WHERE id = $1 AND phone_number = $2 AND purpose = $3 AND status = 'verified' AND proof_used_at IS NULL`,
+      [id, phoneNumber, purpose],
+    );
+    return rowCount === 1;
+  }
+
   /** Counts a wrong guess; the code is used up once it reaches the limit. Returns whether it's still pending. */
   async recordWrongGuess(id: string, maxAttempts: number): Promise<boolean> {
     const { rows } = await this.db.query<{ status: string }>(
