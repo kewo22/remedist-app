@@ -1,8 +1,10 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { JWT_AUDIENCE_STAFF, JWT_ISSUER } from '../../modules/staff-auth/staff-auth.constants';
-import { SessionExpiredException } from '../../modules/staff-auth/staff-auth.exceptions';
+import { AppConfig } from '../../config/app-config';
+import { JWT_AUDIENCE_STAFF } from '../../modules/staff-auth/staff-auth.constants';
 import { StaffAuthRepository } from '../../modules/staff-auth/staff-auth.repository';
+import { JWT_ISSUER } from './auth.constants';
+import { SessionExpiredException } from './auth.exceptions';
 import type { StaffAccessClaims, StaffRequest } from './current-staff';
 
 /**
@@ -15,6 +17,7 @@ import type { StaffAccessClaims, StaffRequest } from './current-staff';
 export class StaffAuthGuard implements CanActivate {
   constructor(
     private readonly jwt: JwtService,
+    private readonly config: AppConfig,
     private readonly repository: StaffAuthRepository,
   ) {}
 
@@ -29,6 +32,7 @@ export class StaffAuthGuard implements CanActivate {
     let claims: StaffAccessClaims;
     try {
       claims = await this.jwt.verifyAsync<StaffAccessClaims>(token, {
+        secret: this.config.auth.staffJwtSecret,
         issuer: JWT_ISSUER,
         audience: JWT_AUDIENCE_STAFF,
         algorithms: ['HS256'],

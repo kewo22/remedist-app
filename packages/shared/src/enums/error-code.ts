@@ -28,6 +28,14 @@ export const ErrorCode = {
   REFRESH_CONFLICT: 'REFRESH_CONFLICT',
   /** This login needs two-factor authentication, which isn't available yet. */
   MFA_REQUIRED: 'MFA_REQUIRED',
+  /** A verification or reset code is wrong, used up or expired. Deliberately doesn't say which. */
+  INVALID_CODE: 'INVALID_CODE',
+  /** Show the Turnstile check and send its token with the retry. */
+  CHALLENGE_REQUIRED: 'CHALLENGE_REQUIRED',
+  /** Google didn't accept the sign-in, or the Google account's email isn't verified. */
+  GOOGLE_SIGN_IN_FAILED: 'GOOGLE_SIGN_IN_FAILED',
+  /** That delivery channel (for example a reset code by phone) isn't available. */
+  CHANNEL_UNAVAILABLE: 'CHANNEL_UNAVAILABLE',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

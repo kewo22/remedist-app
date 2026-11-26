@@ -30,6 +30,27 @@ export abstract class AppConfig {
   abstract readonly auth: {
     /** HMAC secret for staff access tokens. */
     readonly staffJwtSecret: string;
+    /** HMAC secret for client (patient portal) access tokens. Always differs from the staff one. */
+    readonly clientJwtSecret: string;
+  };
+  abstract readonly email: {
+    /** Unset means demo mode: emails are logged, not sent. */
+    readonly resendApiKey?: string;
+    readonly from: string;
+    /** Staff addresses for security alerts. May be empty. */
+    readonly adminAlertEmails: readonly string[];
+  };
+  abstract readonly google: {
+    /** Unset means Google sign-in only accepts `demo:` tokens, and only outside production. */
+    readonly oauthClientId?: string;
+  };
+  abstract readonly turnstile: {
+    /** Unset means every challenge passes (demo mode). */
+    readonly secretKey?: string;
+  };
+  abstract readonly otp: {
+    readonly dailySendCap: number;
+    readonly codeTtlMinutes: number;
   };
 }
 
@@ -56,6 +77,11 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     Object.values(error.constraints ?? {}),
   );
 
+  // Separate secrets, so a client token can never pass the staff guard even if a check is missed.
+  if (vars.JWT_SECRET !== undefined && vars.JWT_SECRET === vars.ADMIN_JWT_SECRET) {
+    problems.push('JWT_SECRET must be different from ADMIN_JWT_SECRET');
+  }
+
   if (vars.NODE_ENV === 'production') {
     for (const key of REQUIRED_IN_PRODUCTION) {
       if (!(key in present)) {
@@ -76,7 +102,18 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     appUrl: vars.APP_URL.replace(/\/+$/, ''),
     logLevel: vars.LOG_LEVEL,
     database: { url: vars.DATABASE_URL, directUrl: vars.DATABASE_URL_UNPOOLED },
-    auth: { staffJwtSecret: vars.ADMIN_JWT_SECRET },
+    auth: { staffJwtSecret: vars.ADMIN_JWT_SECRET, clientJwtSecret: vars.JWT_SECRET },
+    email: {
+      resendApiKey: vars.RESEND_API_KEY,
+      from: vars.EMAIL_FROM,
+      adminAlertEmails: (vars.ADMIN_ALERT_EMAILS ?? '')
+        .split(',')
+        .map((address) => address.trim())
+        .filter((address) => address !== ''),
+    },
+    google: { oauthClientId: vars.GOOGLE_OAUTH_CLIENT_ID },
+    turnstile: { secretKey: vars.TURNSTILE_SECRET_KEY },
+    otp: { dailySendCap: vars.DAILY_OTP_SEND_CAP, codeTtlMinutes: vars.OTP_CODE_TTL_MINUTES },
   };
 }
 

@@ -1,5 +1,16 @@
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsString, Max, Min, MinLength, ValidateBy, ValidationOptions, buildMessage } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  MinLength,
+  ValidateBy,
+  ValidationOptions,
+  buildMessage,
+} from 'class-validator';
 
 export const NODE_ENVS = ['development', 'test', 'production'] as const;
 export type NodeEnv = (typeof NODE_ENVS)[number];
@@ -78,4 +89,51 @@ export class EnvironmentVariables {
   @MinLength(32, { message: 'ADMIN_JWT_SECRET must be at least 32 characters (use a random value)' })
   @IsString()
   ADMIN_JWT_SECRET!: string;
+
+  /** Signs client (patient portal) access tokens. Required, and must differ from ADMIN_JWT_SECRET. */
+  @MinLength(32, { message: 'JWT_SECRET must be at least 32 characters (use a random value)' })
+  @IsString()
+  JWT_SECRET!: string;
+
+  // ── Email (Resend). Without a key, emails are logged instead of sent (demo mode). ──
+
+  @IsOptional()
+  @IsString()
+  RESEND_API_KEY?: string;
+
+  /** The From header, e.g. `The Remedist <hello@theremedist.com>`. Must be a domain verified in Resend. */
+  @IsString()
+  EMAIL_FROM = 'The Remedist <hello@theremedist.com>';
+
+  /** Comma-separated staff emails for security alerts (the daily OTP cap). */
+  @IsOptional()
+  @IsString()
+  ADMIN_ALERT_EMAILS?: string;
+
+  // ── Google sign-in. Without it, only `demo:` test tokens work, and only outside production. ──
+
+  @IsOptional()
+  @IsString()
+  GOOGLE_OAUTH_CLIENT_ID?: string;
+
+  // ── Cloudflare Turnstile. Without it, every challenge passes (demo mode). ──
+
+  @IsOptional()
+  @IsString()
+  TURNSTILE_SECRET_KEY?: string;
+
+  // ── One-time codes ──
+
+  /** Clinic-wide cap on codes sent per UTC day (a circuit breaker against SMS/email bombing). */
+  @Type(() => Number)
+  @Min(1)
+  @IsInt()
+  DAILY_OTP_SEND_CAP = 300;
+
+  /** How long phone and password-reset codes stay valid. */
+  @Type(() => Number)
+  @Max(60)
+  @Min(1)
+  @IsInt()
+  OTP_CODE_TTL_MINUTES = 10;
 }

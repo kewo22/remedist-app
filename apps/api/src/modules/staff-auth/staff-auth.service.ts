@@ -2,48 +2,25 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Role, type StaffProfile, type StaffSession } from '@remedist/shared';
 import { compare, hash } from 'bcryptjs';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { AuditLogRepository } from '../../common/audit/audit-log.repository';
+import { ACCESS_TOKEN_TTL_SECONDS, BCRYPT_COST, JWT_ISSUER, LOGIN_LIMITS } from '../../common/auth/auth.constants';
+import { InvalidCredentialsException, SessionExpiredException } from '../../common/auth/auth.exceptions';
+import type { ClientInfo } from '../../common/auth/client-info';
 import type { CurrentStaff, StaffAccessClaims } from '../../common/auth/current-staff';
+import { LoginThrottleService } from '../../common/auth/login-throttle.service';
+import { RefreshSessionsService, StartedSession } from '../../common/auth/refresh-sessions.service';
+import { AppConfig } from '../../config/app-config';
 import { DatabaseService } from '../../database/database.service';
-import { LoginThrottleService } from './login-throttle.service';
-import {
-  ACCESS_TOKEN_TTL_SECONDS,
-  BCRYPT_COST,
-  JWT_AUDIENCE_STAFF,
-  JWT_ISSUER,
-  MAX_USER_AGENT_LENGTH,
-  REFRESH_REUSE_GRACE_SECONDS,
-  REFRESH_TOKEN_BYTES,
-  SESSION_TTL_SECONDS,
-} from './staff-auth.constants';
-import {
-  InvalidCredentialsException,
-  MfaRequiredException,
-  RefreshConflictException,
-  SessionExpiredException,
-} from './staff-auth.exceptions';
+import { JWT_AUDIENCE_STAFF, LOGIN_THROTTLE_PURPOSE, SESSION_TTL_SECONDS } from './staff-auth.constants';
+import { MfaRequiredException } from './staff-auth.exceptions';
 import { StaffAuthRepository } from './staff-auth.repository';
 
-export interface ClientInfo {
-  ipAddress: string | null;
-  userAgent: string | null;
-  requestId?: string;
-}
-
 /** A session plus the raw refresh token, which only ever goes into the cookie. */
-export interface IssuedSession {
+export interface IssuedStaffSession {
   session: StaffSession;
   refreshToken: string;
   refreshExpiresAt: Date;
-}
-
-function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
-}
-
-function newRefreshToken(): string {
-  return randomBytes(REFRESH_TOKEN_BYTES).toString('base64url');
 }
 
 @Injectable()
@@ -53,8 +30,10 @@ export class StaffAuthService implements OnModuleInit {
 
   constructor(
     private readonly repository: StaffAuthRepository,
+    private readonly sessions: RefreshSessionsService,
     private readonly throttle: LoginThrottleService,
     private readonly jwt: JwtService,
+    private readonly config: AppConfig,
     private readonly db: DatabaseService,
     private readonly audit: AuditLogRepository,
   ) {}
@@ -63,14 +42,14 @@ export class StaffAuthService implements OnModuleInit {
     this.dummyHash = await hash(randomBytes(16).toString('hex'), BCRYPT_COST);
   }
 
-  async login(email: string, password: string, client: ClientInfo): Promise<IssuedSession> {
-    await this.throttle.assertAllowed(email, client.ipAddress);
+  async login(email: string, password: string, client: ClientInfo): Promise<IssuedStaffSession> {
+    await this.throttle.assertAllowed(LOGIN_THROTTLE_PURPOSE, LOGIN_LIMITS, email, client.ipAddress);
 
     const login = await this.repository.findLoginByEmail(email);
     const passwordMatches = await compare(password, login?.password_hash ?? this.dummyHash);
     // A disabled login gets the same answer as a wrong password: nothing to learn from probing.
     if (!login || !passwordMatches || !login.is_active) {
-      await this.throttle.recordFailure(email, client.ipAddress);
+      await this.throttle.recordFailure(LOGIN_THROTTLE_PURPOSE, email, client.ipAddress);
       throw new InvalidCredentialsException();
     }
     // super_admin requires MFA, which isn't built yet, so it can't sign in at all.
@@ -78,90 +57,30 @@ export class StaffAuthService implements OnModuleInit {
       throw new MfaRequiredException();
     }
 
-    const refreshToken = newRefreshToken();
-    const refreshExpiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000);
-    const sessionId = await this.repository.createSession({
-      staffUserId: login.id,
-      refreshTokenHash: hashToken(refreshToken),
-      expiresAt: refreshExpiresAt,
-      userAgent: client.userAgent?.slice(0, MAX_USER_AGENT_LENGTH) ?? null,
-      ipAddress: client.ipAddress,
-    });
+    const started = await this.sessions.start('staff', login.id, SESSION_TTL_SECONDS, client);
     await this.repository.recordLogin(login.id);
-
-    return { session: await this.buildSession(login.id, sessionId, login.token_version), refreshToken, refreshExpiresAt };
+    return this.issue(started);
   }
 
-  /**
-   * Swaps a refresh token for a new one (rotation) and a new access token. The new session keeps
-   * the original absolute expiry. Presenting an already-replaced token is treated as theft and
-   * revokes the whole chain, unless it was replaced moments ago (two tabs racing).
-   */
-  async refresh(refreshToken: string, client: ClientInfo): Promise<IssuedSession> {
-    const current = await this.repository.findSessionByTokenHash(hashToken(refreshToken));
-    if (!current) {
-      throw new SessionExpiredException();
-    }
-
-    if (current.replaced_by) {
-      const replacedAgo = current.revoked_at ? (Date.now() - current.revoked_at.getTime()) / 1000 : Infinity;
-      if (replacedAgo <= REFRESH_REUSE_GRACE_SECONDS) {
-        throw new RefreshConflictException();
-      }
-      await this.repository.revokeChainFrom(current.id);
-      throw new SessionExpiredException();
-    }
-    if (current.revoked_at || current.expires_at.getTime() <= Date.now()) {
-      throw new SessionExpiredException();
-    }
-
-    const profile = await this.repository.findProfile(current.staff_user_id);
-    if (!profile || !profile.is_active || profile.roles.includes(Role.SUPER_ADMIN)) {
-      await this.repository.revokeSession(current.id);
-      throw new SessionExpiredException();
-    }
-
-    const nextToken = newRefreshToken();
-    const nextSessionId = await this.db.transaction(async (tx) => {
-      const id = await this.repository.createSession(
-        {
-          staffUserId: current.staff_user_id,
-          refreshTokenHash: hashToken(nextToken),
-          expiresAt: current.expires_at,
-          userAgent: client.userAgent?.slice(0, MAX_USER_AGENT_LENGTH) ?? null,
-          ipAddress: client.ipAddress,
-        },
-        tx,
-      );
-      if (!(await this.repository.markRotated(current.id, id, tx))) {
-        // Another request rotated it between our read and this write.
-        throw new RefreshConflictException();
-      }
-      return id;
+  /** Rotates the refresh token. The login must still be active and not super_admin. */
+  async refresh(refreshToken: string, client: ClientInfo): Promise<IssuedStaffSession> {
+    const started = await this.sessions.rotate('staff', refreshToken, client, async (staffUserId) => {
+      const profile = await this.repository.findProfile(staffUserId);
+      return profile !== undefined && profile.is_active && !profile.roles.includes(Role.SUPER_ADMIN);
     });
-
-    return {
-      session: await this.buildSession(profile.id, nextSessionId, profile.token_version),
-      refreshToken: nextToken,
-      refreshExpiresAt: current.expires_at,
-    };
+    return this.issue(started);
   }
 
   /** Ends the session behind this refresh token, if any. Always succeeds. */
-  async logout(refreshToken: string | undefined): Promise<void> {
-    if (!refreshToken) {
-      return;
-    }
-    const current = await this.repository.findSessionByTokenHash(hashToken(refreshToken));
-    if (current) {
-      await this.repository.revokeSession(current.id);
-    }
+  logout(refreshToken: string | undefined): Promise<void> {
+    return this.sessions.end('staff', refreshToken);
   }
 
   /** Ends every session for this login, on every device. */
   async logoutEverywhere(staff: CurrentStaff, client: ClientInfo): Promise<void> {
     await this.db.transaction(async (tx) => {
-      const revoked = await this.repository.revokeAllSessions(staff.id, tx);
+      await this.repository.bumpTokenVersion(staff.id, tx);
+      const revoked = await this.sessions.endAll('staff', staff.id, tx);
       await this.audit.record(
         {
           actorType: 'staff',
@@ -189,28 +108,33 @@ export class StaffAuthService implements OnModuleInit {
     };
   }
 
-  private async buildSession(staffUserId: string, sessionId: string, tokenVersion: number): Promise<StaffSession> {
-    const profile = await this.repository.findProfile(staffUserId);
+  private async issue(started: StartedSession): Promise<IssuedStaffSession> {
+    const profile = await this.repository.findProfile(started.ownerId);
     if (!profile) {
       throw new SessionExpiredException();
     }
-    const claims: StaffAccessClaims = { sub: staffUserId, sid: sessionId, tv: tokenVersion };
+    const claims: StaffAccessClaims = { sub: profile.id, sid: started.sessionId, tv: profile.token_version };
     const accessToken = await this.jwt.signAsync(claims, {
+      secret: this.config.auth.staffJwtSecret,
       issuer: JWT_ISSUER,
       audience: JWT_AUDIENCE_STAFF,
       expiresIn: ACCESS_TOKEN_TTL_SECONDS,
       algorithm: 'HS256',
     });
     return {
-      accessToken,
-      accessTokenExpiresAt: new Date(Date.now() + ACCESS_TOKEN_TTL_SECONDS * 1000).toISOString(),
-      staff: {
-        id: profile.id,
-        name: profile.name,
-        email: profile.email,
-        roles: [...profile.roles].sort(),
-        permissions: [...profile.permissions].sort(),
+      session: {
+        accessToken,
+        accessTokenExpiresAt: new Date(Date.now() + ACCESS_TOKEN_TTL_SECONDS * 1000).toISOString(),
+        staff: {
+          id: profile.id,
+          name: profile.name,
+          email: profile.email,
+          roles: [...profile.roles].sort(),
+          permissions: [...profile.permissions].sort(),
+        },
       },
+      refreshToken: started.refreshToken,
+      refreshExpiresAt: started.expiresAt,
     };
   }
 }
