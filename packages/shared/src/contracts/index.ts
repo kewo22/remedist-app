@@ -2,4 +2,5 @@
 // Add one file per domain (for example bookings.ts) and re-export it here.
 
 export * from './api-response';
+export * from './health';
 export * from './staff-auth';
