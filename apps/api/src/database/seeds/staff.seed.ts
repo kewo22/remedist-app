@@ -106,7 +106,7 @@ export async function seedStaffLogins(db: Queryable, config: SeedConfig, report:
       report.skipped(label, 'already exists');
     } else {
       await createLogin(db, { name: sa.name, email: sa.email, roles: [Role.SUPER_ADMIN] }, sa.password);
-      report.created(label, 'set up MFA on first login');
+      report.created(label, "can't sign in until MFA is built");
     }
   }
 }

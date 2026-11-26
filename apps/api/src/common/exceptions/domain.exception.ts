@@ -18,13 +18,17 @@ import type { ApiFieldError, ErrorCode } from '@remedist/shared';
  * or email is registered, SQL, stack traces.
  */
 export abstract class DomainException extends HttpException {
+  /** Extra response headers the exception filter sets, e.g. Retry-After on a 429. */
+  readonly headers: Readonly<Record<string, string>>;
+
   protected constructor(
     status: HttpStatus,
     readonly errorCode: ErrorCode,
     message: string,
     readonly fieldErrors?: ApiFieldError[],
-    options?: { cause?: unknown },
+    options?: { cause?: unknown; headers?: Record<string, string> },
   ) {
-    super(message, status, options);
+    super(message, status, options?.cause === undefined ? undefined : { cause: options.cause });
+    this.headers = options?.headers ?? {};
   }
 }

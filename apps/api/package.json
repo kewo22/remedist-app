@@ -15,11 +15,13 @@
   "dependencies": {
     "@nestjs/common": "^11.2.11",
     "@nestjs/core": "^11.2.11",
+    "@nestjs/jwt": "^11.0.2",
     "@nestjs/platform-express": "^11.2.11",
     "@remedist/shared": "workspace:*",
     "bcryptjs": "^3.0.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.4",
+    "cookie-parser": "^1.4.7",
     "pg": "^8.23.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
@@ -28,6 +30,7 @@
     "@neon/config": "^1.14.6",
     "@nestjs/cli": "^11.0.24",
     "@nestjs/schematics": "^11.0.0",
+    "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.6",
     "@types/node": "^24.19.2",
     "@types/pg": "^8.23.1",

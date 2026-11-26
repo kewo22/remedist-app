@@ -27,6 +27,10 @@ export abstract class AppConfig {
     /** Direct URL for migrations and session-level advisory locks. */
     readonly directUrl: string;
   };
+  abstract readonly auth: {
+    /** HMAC secret for staff access tokens. */
+    readonly staffJwtSecret: string;
+  };
 }
 
 export class ConfigValidationError extends Error {
@@ -72,6 +76,7 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     appUrl: vars.APP_URL.replace(/\/+$/, ''),
     logLevel: vars.LOG_LEVEL,
     database: { url: vars.DATABASE_URL, directUrl: vars.DATABASE_URL_UNPOOLED },
+    auth: { staffJwtSecret: vars.ADMIN_JWT_SECRET },
   };
 }
 
