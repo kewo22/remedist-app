@@ -14,6 +14,13 @@ export const CLIENT_AUTH_ROUTES = {
   login: '/portal/auth/login',
   /** POST ClientGoogleSignInRequest → ClientSession (sets the refresh cookie). */
   google: '/portal/auth/google',
+  /**
+   * POST ClientPhoneSignInRequest → ClientSession (sets the refresh cookie). The token comes from
+   * PHONE_OTP_ROUTES.verify with purpose 'login'. PHONE_NOT_VERIFIED if the token is bad,
+   * PHONE_ACCOUNT_NOT_FOUND if no portal account has that phone, PHONE_ACCOUNT_AMBIGUOUS if
+   * more than one does.
+   */
+  phone: '/portal/auth/phone',
   /** POST ForgotPasswordRequest → ForgotPasswordResponse. The same answer for unknown emails. */
   forgotPassword: '/portal/auth/forgot-password',
   /** POST ResetPasswordRequest → ClientSession. Signs out every other device. */
@@ -65,6 +72,11 @@ export interface ClientLoginRequest {
 export interface ClientGoogleSignInRequest {
   /** The `credential` Google Identity Services hands the page. */
   idToken: string;
+}
+
+export interface ClientPhoneSignInRequest {
+  /** PhoneOtpVerifyResponse.phoneVerificationToken, for purpose 'login'. */
+  phoneVerificationToken: string;
 }
 
 export interface ForgotPasswordRequest {
