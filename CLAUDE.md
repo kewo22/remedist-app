@@ -129,8 +129,9 @@ modules/bookings/
 ### Auth
 - **Protecting a staff route:** put `@StaffOnly(Permission.X, ...)` on it (from `common/auth/auth.decorators.ts`). It needs every listed permission, and at least one must be listed. Get the user with `@CurrentUser()`.
   - `@StaffSignedIn()` is only for a staff member's own account (`me`, `logout-all`). `@PublicRoute()` marks routes that need no token.
-  - The global `AdminRoutePolicyGuard` refuses any `admin/...` route without one of these, so a forgotten guard fails closed.
-  - Patients will use `ClientAuthGuard` (task 04).
+- **Protecting a client (portal) route:** put `@ClientSignedIn()` on it and get the account with `@CurrentClient()`. Check that any record asked for belongs to its `contactId`.
+- **The global `RoutePolicyGuard`** refuses any `admin/...` route without a staff decorator or `@PublicRoute()`, and any `portal/...` route without `@ClientSignedIn()` or `@PublicRoute()`. Using the other audience's guard is refused too. A forgotten guard fails closed.
+- **Shared auth code is in `common/auth`:** refresh sessions (`RefreshSessionsService`), the login throttle, the origin guard, the cookie helper and the shared exceptions. `JwtModule` has no default secret: every sign and verify passes the staff or client secret explicitly.
 - **How staff sessions work** (`modules/staff-auth`, routes in `STAFF_AUTH_ROUTES`):
   - **Tokens:** a 15-minute access JWT (`ADMIN_JWT_SECRET`, claims `sub`, `sid`, `tv`) is sent as `Authorization: Bearer`. The refresh token sits in the httpOnly `SameSite=Strict` cookie `remedist_staff_rt`, scoped to `/api/v1/admin/auth`. Sessions last 12 hours from login, as in the old app.
   - **The guard** re-reads the session, `is_active`, `token_version` and permissions on every request, so logout, sign-out-everywhere, disabling a login and role changes all apply immediately.
@@ -138,6 +139,15 @@ modules/bookings/
   - **CSRF:** refresh and logout also require the `Origin` header to match `WEB_URL` when one is sent.
   - **Login** keeps the old throttle (`auth.login_attempts`, purpose `admin_login`: 5 per email and 20 per IP in 15 min, 20 and 80 in 24 h), the generic "That email or password doesn't match." for unknown emails, wrong passwords and disabled logins, and the 300–500 ms fail delay. A 429 carries `Retry-After`.
   - **super_admin** sign-in returns 403 `MFA_REQUIRED` until MFA is built.
+- **How client sessions work** (`modules/client-auth`, routes in `CLIENT_AUTH_ROUTES` under `/api/v1/portal/auth`):
+  - **Tokens:** the same scheme as staff, with `JWT_SECRET`, audience `client` and the cookie `remedist_client_rt`, scoped to `/api/v1/portal/auth`. Sessions last 7 days from sign-in, the old token's lifetime.
+  - **Sign-up:** the answer is the same whether the email is new or already has an account; the existing owner gets an "account exists" email instead of a code. A retry before verifying replaces the password and sends a new code. Password minimum is 6 (`CLIENT_PASSWORD_MIN_LENGTH`), as in the old app.
+  - **Login:** needs a verified email. Unknown, wrong, Google-only and unverified all get the generic `INVALID_CREDENTIALS`. Throttle purpose `login`, with the same limits as staff.
+  - **Email codes:** verification and reset codes are 6 digits, stored bcrypt-hashed in `auth.otp_requests` (purposes `email_verification`, `password_reset`). That row is also the send ledger the OTP limits count. Verification codes last 15 minutes and reset codes `OTP_CODE_TTL_MINUTES`. A code allows 5 wrong guesses, and verify is also throttled (`email_verify`: 5 per email per 15 min and per 24 h).
+  - **Send limits:** every code send goes through `OtpService` (`modules/otp`): blocklist, then the daily cap, then the per-identifier/IP windows, then the cooldown. Password reset also needs Turnstile from the second send in 15 minutes (`CHALLENGE_REQUIRED`).
+  - **Google:** verified server-side with `google-auth-library`. Google must have verified the email. Linking to an account whose email was never verified removes its password and takes Google's name (recorded in `audit_log`). Without `GOOGLE_OAUTH_CLIENT_ID`, only `demo:<email>[:<name>]` tokens work, and only outside production.
+  - **Reset:** signs out every device (bumps `token_version` and ends all sessions), then signs this one in. The `phone` channel returns `CHANNEL_UNAVAILABLE` until WhatsApp/SMS sending is built.
+  - **No email leaks:** a provider failure never changes the response. It's logged and recorded as `failed`. In demo email mode outside production, responses include `devCode`.
 - Staff routes check **permissions, never role names**. Roles and permissions are defined once in `packages/shared/src/enums/role.ts` (`ROLE_DEFINITIONS`); the seed copies them into `auth.roles` and `auth.role_permissions`. One person can hold several roles: Rauzan is `owner` + `doctor`.
 - Role rules:
   - `super_admin` is the developer's system role. It's granted only by seed or CLI, never from the CRM, and requires MFA. Its reads of clinical records are written to `clinical.access_log` like everyone else's.
@@ -146,7 +156,7 @@ modules/bookings/
   - `ask_remedist` holds only `ai.ask`, so every other staff route rejects it.
   - A doctor is bookable only with a `practitioners` row.
 - Check `token_version` (on `auth.staff_users` and `auth.patient_accounts`) so "log out everywhere" revokes old tokens. Refresh tokens rotate through `auth.sessions`: reusing a replaced token revokes the chain.
-- Email verification, password reset and staff invites use `auth.one_time_tokens`. Only token hashes are stored.
+- 6-digit codes (email verification, password reset, phone OTP) live in `auth.otp_requests`. `auth.one_time_tokens` is for link tokens such as staff invites. Only hashes are stored.
 
 ### Database
 - Only repositories run SQL, and every query is parameterised.
@@ -193,7 +203,11 @@ modules/bookings/
 
 ### Integrations
 - Each third-party service sits behind a provider interface with a **real** and a **demo** implementation.
+  - The interface is an abstract class used as the injection token, for example `EmailProvider`, `TurnstileVerifier` or `GoogleIdentityVerifier`.
+  - The global `IntegrationsModule` picks the implementation.
 - The demo implementation is chosen when its env vars are missing and logs a warning at startup. The app must boot and work locally with no third-party keys.
+  - A demo must never weaken production. For example, demo Google sign-in refuses every token in production.
+  - Calls to providers use `fetch` with a timeout, and never log message bodies (they can hold codes).
 - Webhooks verify signatures (PayHere MD5, Twilio) before trusting anything.
 
 ### Background jobs
@@ -305,9 +319,9 @@ Each app has its own `.env` and `.env.example`. The main ones:
 - `NODE_ENV`, `PORT` (3001), `WEB_URL` (for CORS and links in emails), `APP_URL`, `LOG_LEVEL`. `WEB_URL` and `APP_URL` are required in production.
 - `DATABASE_URL` (pooled), `DATABASE_URL_UNPOOLED` (direct: migrations and job locks), `DATABASE_AI_URL` (read-only role for Ask Remedist). The first two are Neon's own names: run `neon env pull` in `apps/api` to fill them in `.env` without touching other lines.
 - Local development uses the Neon `dev` branch, pinned in the git-ignored `apps/api/.neon` (`neon checkout dev`). Never point a local `.env` at `production`.
-- `ADMIN_JWT_SECRET` (staff access tokens, required, 32+ random characters; the migrate and seed commands load the same config, so they need it too), `JWT_SECRET` (patients, task 04; must differ)
+- `ADMIN_JWT_SECRET` (staff access tokens) and `JWT_SECRET` (client access tokens): both required, 32+ random characters, and different from each other. The migrate and seed commands load the same config, so they need them too.
 - `PAYHERE_MERCHANT_ID`, `PAYHERE_MERCHANT_SECRET`, `PAYHERE_MODE`
-- `TWILIO_*`, `RESEND_API_KEY`
+- `TWILIO_*`, `RESEND_API_KEY`, `EMAIL_FROM` (a Resend-verified domain), `ADMIN_ALERT_EMAILS` (security alerts, comma-separated)
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`
 - `ANTHROPIC_API_KEY`, `ASK_REMEDIST_MODEL`
 - `TURNSTILE_SECRET_KEY`, `SENTRY_DSN`
