@@ -3,4 +3,5 @@
 
 export * from './api-response';
 export * from './client-auth';
+export * from './health';
 export * from './staff-auth';
