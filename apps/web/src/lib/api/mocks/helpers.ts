@@ -24,7 +24,8 @@ export async function mockFail(
   errorCode: ApiErrorCode,
   message: string,
   errors?: { field: string; messages: string[] }[],
+  options: { retryAfterSeconds?: number } = {},
 ): Promise<never> {
   await mockDelay();
-  throw new ApiClientError({ statusCode, errorCode, message, errors, path: 'mock' });
+  throw new ApiClientError({ statusCode, errorCode, message, errors, path: 'mock' }, options);
 }

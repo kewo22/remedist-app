@@ -2,13 +2,15 @@
 // components never call fetch directly.
 //
 // - Unwraps the { success, data } envelope and returns `data` (or the whole envelope for `meta`).
-// - Turns error envelopes into ApiClientError and transport failures into NetworkError.
-// - Sends the auth cookies, and on a 401 refreshes the session once and retries (browser only).
+// - Turns error envelopes into ApiClientError (with Retry-After on a 429) and transport failures into NetworkError.
+// - With `auth`, sends that audience's access token as `Authorization: Bearer`, and on a 401
+//   refreshes the session once and retries (browser only). See session.ts.
+// - Always sends cookies (`credentials: 'include'`): the auth routes need the refresh cookie.
 
 import type { ApiError, ApiSuccess } from '@remedist/shared';
 import { env } from '@/lib/env';
-import { ApiClientError, NetworkError } from './errors';
-import { notifySessionExpired, REFRESH_PATHS, type SessionAudience } from './session';
+import { ApiClientError, NetworkError, parseRetryAfter } from './errors';
+import { endSession, getAccessToken, refreshSession, type SessionAudience } from './session';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -20,7 +22,7 @@ export interface RequestOptions {
   body?: unknown;
   /** Undefined and null values are dropped. */
   query?: Record<string, QueryValue | QueryValue[]>;
-  /** Which session this call belongs to. Enables refresh-and-retry on 401. */
+  /** Which session this call belongs to: sends its access token, and refreshes and retries once on a 401. */
   auth?: SessionAudience;
   headers?: HeadersInit;
   signal?: AbortSignal;
@@ -37,13 +39,12 @@ export async function apiRequestEnvelope<T>(path: string, options: RequestOption
   const response = await send(path, options);
 
   if (response.status === 401 && options.auth && isBrowser()) {
-    const refreshed = await refreshSession(options.auth);
-    if (refreshed) {
+    // refreshSession ends the session itself when the API refuses the refresh.
+    if (await refreshSession(options.auth)) {
       const retry = await send(path, options);
-      if (retry.status === 401) notifySessionExpired(options.auth);
+      if (retry.status === 401) endSession(options.auth);
       return readEnvelope<T>(retry);
     }
-    notifySessionExpired(options.auth);
   }
 
   return readEnvelope<T>(response);
@@ -83,6 +84,8 @@ export function buildUrl(path: string, options: Pick<RequestOptions, 'query' | '
 async function send(path: string, options: RequestOptions): Promise<Response> {
   const headers = new Headers(options.headers);
   headers.set('Accept', 'application/json');
+  const token = options.auth ? getAccessToken(options.auth) : undefined;
+  if (token) headers.set('Authorization', `Bearer ${token}`);
 
   let body: BodyInit | undefined;
   if (options.body instanceof FormData) {
@@ -117,7 +120,9 @@ async function readEnvelope<T>(response: Response): Promise<ApiSuccess<T>> {
 
   if (isEnvelope(payload)) {
     if (payload.success) return payload as ApiSuccess<T>;
-    throw new ApiClientError(payload as ApiError);
+    throw new ApiClientError(payload as ApiError, {
+      retryAfterSeconds: parseRetryAfter(response.headers.get('Retry-After')),
+    });
   }
 
   // No envelope: a proxy error page, an empty 204, or a route that skips the envelope.
@@ -148,20 +153,4 @@ function isEnvelope(value: unknown): value is { success: boolean } {
 
 function isBrowser(): boolean {
   return typeof window !== 'undefined';
-}
-
-// One refresh at a time per audience: if five queries hit 401 together, they share one refresh call.
-const pendingRefresh = new Map<SessionAudience, Promise<boolean>>();
-
-function refreshSession(audience: SessionAudience): Promise<boolean> {
-  const existing = pendingRefresh.get(audience);
-  if (existing) return existing;
-
-  const attempt = send(REFRESH_PATHS[audience], { method: 'POST' })
-    .then((response) => response.ok)
-    .catch(() => false)
-    .finally(() => pendingRefresh.delete(audience));
-
-  pendingRefresh.set(audience, attempt);
-  return attempt;
 }
