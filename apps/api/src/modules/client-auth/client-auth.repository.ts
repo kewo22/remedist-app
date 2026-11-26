@@ -63,6 +63,22 @@ export class ClientAuthRepository {
     return rows[0];
   }
 
+  /**
+   * The portal accounts that phone sign-in can use for this number: the contact's phone matches,
+   * the contact isn't archived, and the account's email is verified (an unverified account can't
+   * sign in by email either). contacts.phone isn't unique, so there can be several; the caller
+   * only needs to know if there's more than one, hence the limit.
+   */
+  async findSignInCandidatesByPhone(phoneNumber: string): Promise<ClientAccountRow[]> {
+    const { rows } = await this.db.query<ClientAccountRow>(
+      `SELECT ${ACCOUNT_COLUMNS} FROM auth.patient_accounts a JOIN contacts c ON c.id = a.contact_id
+       WHERE c.phone = $1 AND c.archived_at IS NULL AND a.email_verified_at IS NOT NULL
+       LIMIT 2`,
+      [phoneNumber],
+    );
+    return rows;
+  }
+
   async findAccess(accountId: string, sessionId: string): Promise<ClientAccessRow | undefined> {
     const { rows } = await this.db.query<ClientAccessRow>(
       `SELECT a.id, a.contact_id, a.email, a.token_version,

@@ -11,7 +11,8 @@ export type OtpChannel = 'email' | 'sms' | 'whatsapp';
 export type OtpDeliveryStatus = 'sent' | 'failed' | 'skipped';
 
 export type OtpVerifyResult =
-  | { verified: true }
+  /** `requestId` is the auth.otp_requests row the code matched. */
+  | { verified: true; requestId: string }
   | { verified: false; reason: 'not_found' | 'expired' | 'mismatch' | 'too_many_attempts' };
 
 /** For logs: never the full address or number. */

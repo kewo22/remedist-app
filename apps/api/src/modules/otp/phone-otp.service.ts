@@ -92,7 +92,7 @@ export class PhoneOtpService {
       await failDelay();
       throw result.reason === 'mismatch' ? new WrongPhoneCodeException() : new PhoneCodeExpiredException();
     }
-    const proof = await this.verification.issue(phoneNumber, purpose);
+    const proof = await this.verification.issue(phoneNumber, purpose, result.requestId);
     return {
       verified: true,
       phoneNumber,

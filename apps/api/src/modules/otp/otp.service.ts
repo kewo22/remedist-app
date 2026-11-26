@@ -196,7 +196,7 @@ export class OtpService {
       if (await compare(code, row.code_hash)) {
         if (await this.repository.consume(row.id, identifier, purpose)) {
           this.logEvent('verify_succeeded', identifier, purpose);
-          return { verified: true };
+          return { verified: true, requestId: row.id };
         }
         // Spent by a concurrent request a moment ago.
         return this.verifyFailed(identifier, purpose, 'not_found');
