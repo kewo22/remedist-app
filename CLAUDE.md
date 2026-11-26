@@ -233,7 +233,13 @@ Keep each behind a small service so it can move to Postgres or Redis later witho
 ### Working without the API (mock mode)
 - All API calls go through `apps/web/src/lib/api/`. Components never call `fetch` directly.
 - Each domain has one file (for example `lib/api/bookings.ts`) that exports a typed object built from the shared contract. It has a **live** implementation, which calls the API and unwraps the envelope, and a **mock** implementation in `lib/api/mocks/`. Pick between them with `selectApi` (`lib/api/mode.ts`); `lib/api/health.ts` is the template.
-- `lib/api/client.ts` is the only code that calls `fetch`. It sends cookies (`credentials: 'include'`), returns `data`, throws `ApiClientError` (with `errorCode` and `fieldErrors`) or `NetworkError`, and with `auth: 'client' | 'staff'` refreshes the session once on a 401. Login tokens are httpOnly cookies set by the API; the web app never stores tokens. Server components forward the session with `forwardedAuthHeaders()` from `lib/api/server.ts`.
+- `lib/api/client.ts` is the only code that calls `fetch`. It sends cookies (`credentials: 'include'`), returns `data`, and throws `ApiClientError` (with `errorCode`, `fieldErrors` and `retryAfterSeconds` from a 429's `Retry-After`) or `NetworkError`. With `auth: 'client' | 'staff'` it sends that audience's access token as `Authorization: Bearer`, and on a 401 refreshes once and retries.
+- **Sessions** (`lib/api/session.ts`):
+  - The access token is held in memory only, never in localStorage or a readable cookie.
+  - The refresh token is the API's httpOnly cookie, sent only to that audience's auth routes, so **pages behind a login load their data in the browser** (client components with TanStack Query), never in server components.
+  - On page load the session is `restoring` until one refresh answers. A refresh is scheduled shortly before expiry, only one runs at a time, and a `REFRESH_CONFLICT` is retried once.
+  - Each audience's auth module registers its refresh call with `registerRefresher`, so mocks and the live API take the same path.
+  - For clients, use `lib/auth/client-auth.ts`: `useClientSession()`, `completeClientSignIn(session)` after any call that returns a `ClientSession`, and `signOutClient()`. Guard pages with `<RequireClientSession>`, and use `safeNextPath` for any `?next=` redirect.
 - Show errors with `getErrorMessage(error)` or `<ErrorAlert>`.
 - Forms use react-hook-form with a zod schema (`zodResolver`) and `<FormField>` from `components/common/form-field.tsx`, which links the label, hint and error for screen readers. `app/ui-kit/sample-form.tsx` is the template.
 - Zod schemas are for quick feedback only; the API is what validates. On a failed submit, call `applyApiErrors(error, form.setError, fields)` from `lib/forms.ts`: it puts each `VALIDATION_FAILED` message on its field and the envelope message on `errors.root.server`.
