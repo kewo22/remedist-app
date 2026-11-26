@@ -29,6 +29,7 @@ The API and the web app are built **at the same time, in separate Git worktrees*
 | UI | Tailwind CSS + shadcn/ui, with colours and fonts from the Remedist brand guideline |
 | Web data fetching | TanStack Query for client components; server components call the API client directly |
 | Web forms | react-hook-form + zod (via `@hookform/resolvers`) |
+| Web tables | TanStack Table **v9** (`@tanstack/react-table`), behind `DataTable`. v9's API differs from v8: check the package's bundled `skills/` docs, not v8 examples. |
 | Database | Neon Postgres (AWS Singapore). Pooled URL for the app, direct URL for migrations and job locks. No SQLite. |
 | Data access | `pg` via a `DatabaseService`. Hand-written SQL lives only in repository classes. No ORM. |
 | Migrations | Numbered `.sql` files plus a runner that records them in a `schema_migrations` table |
@@ -212,6 +213,7 @@ Keep each behind a small service so it can move to Postgres or Redis later witho
 - Show errors with `getErrorMessage(error)` or `<ErrorAlert>`.
 - Forms use react-hook-form with a zod schema (`zodResolver`) and `<FormField>` from `components/common/form-field.tsx`, which links the label, hint and error for screen readers. `app/ui-kit/sample-form.tsx` is the template.
 - Zod schemas are for quick feedback only; the API is what validates. On a failed submit, call `applyApiErrors(error, form.setError, fields)` from `lib/forms.ts`: it puts each `VALIDATION_FAILED` message on its field and the envelope message on `errors.root.server`.
+- Lists of records use `<DataTable>` from `components/common/data-table.tsx`. Define columns at module scope with `dataTableColumnHelper<Row>()`, and put alignment or responsive classes in `meta`. Sorting is client-side by default. For lists the API pages and sorts, pass `sorting`, `onSortingChange` and `manualSorting`, and put `sorting` in the query key. New table features (pagination, selection...) are registered once in `dataTableFeatures`.
 - Zod checks that mirror a business rule (phone format, the 24-hour cutoff...) call the function from `packages/shared/rules`, never a copy of it.
 - Colours and fonts are tokens in `app/globals.css` (from the old site's palette). Use the token classes (`bg-primary`, `text-muted-foreground`, `bg-brand-mint`...), never hex values in components.
 - `NEXT_PUBLIC_API_MODE=mock` uses the mocks, and `live` uses the real API at `NEXT_PUBLIC_API_URL`. Default to `mock` until the API domain exists.
