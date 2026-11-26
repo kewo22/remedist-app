@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { AppConfig } from '../config/app-config';
 import { EmailProvider, createEmailProvider } from './email/email.provider';
 import { GoogleIdentityVerifier, createGoogleIdentityVerifier } from './google/google-identity.verifier';
+import { PhoneMessenger, createPhoneMessenger } from './messaging/phone-messenger';
 import { TurnstileVerifier, createTurnstileVerifier } from './turnstile/turnstile.verifier';
 
 /**
@@ -14,7 +15,8 @@ import { TurnstileVerifier, createTurnstileVerifier } from './turnstile/turnstil
     { provide: EmailProvider, inject: [AppConfig], useFactory: createEmailProvider },
     { provide: TurnstileVerifier, inject: [AppConfig], useFactory: createTurnstileVerifier },
     { provide: GoogleIdentityVerifier, inject: [AppConfig], useFactory: createGoogleIdentityVerifier },
+    { provide: PhoneMessenger, inject: [AppConfig], useFactory: createPhoneMessenger },
   ],
-  exports: [EmailProvider, TurnstileVerifier, GoogleIdentityVerifier],
+  exports: [EmailProvider, TurnstileVerifier, GoogleIdentityVerifier, PhoneMessenger],
 })
 export class IntegrationsModule {}

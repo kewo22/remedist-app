@@ -2,11 +2,13 @@ import { Injectable } from '@nestjs/common';
 import type { ClientAuthProvider } from '@remedist/shared';
 import { DatabaseService, Queryable } from '../../database/database.service';
 
-/** A portal account with its contact's name. */
+/** A portal account with its contact's name and phone. */
 export interface ClientAccountRow {
   id: string;
   contact_id: string;
   name: string;
+  /** E.164, from the contact (set at Part 1 registration). Where phone reset codes go. */
+  contact_phone: string | null;
   email: string;
   password_hash: string | null;
   google_id: string | null;
@@ -26,7 +28,7 @@ export interface ClientAccessRow {
 }
 
 const ACCOUNT_COLUMNS = `
-  a.id, a.contact_id, c.name, a.email, a.password_hash, a.google_id, a.auth_provider,
+  a.id, a.contact_id, c.name, c.phone AS contact_phone, a.email, a.password_hash, a.google_id, a.auth_provider,
   a.email_verified_at, a.token_version`;
 
 /** All SQL for auth.patient_accounts. Sessions and the attempt ledger are in common/auth. */

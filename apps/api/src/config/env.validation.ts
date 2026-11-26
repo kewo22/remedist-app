@@ -110,6 +110,26 @@ export class EnvironmentVariables {
   @IsString()
   ADMIN_ALERT_EMAILS?: string;
 
+  // ── Twilio (WhatsApp, then SMS). Without the SID, token and a sender, messages are logged (demo mode). ──
+
+  @IsOptional()
+  @IsString()
+  TWILIO_ACCOUNT_SID?: string;
+
+  @IsOptional()
+  @IsString()
+  TWILIO_AUTH_TOKEN?: string;
+
+  /** e.g. `whatsapp:+14155238886`. */
+  @IsOptional()
+  @IsString()
+  TWILIO_WHATSAPP_FROM?: string;
+
+  /** An E.164 number or a Messaging Service SID. */
+  @IsOptional()
+  @IsString()
+  TWILIO_SMS_FROM?: string;
+
   // ── Google sign-in. Without it, only `demo:` test tokens work, and only outside production. ──
 
   @IsOptional()

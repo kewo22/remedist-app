@@ -20,14 +20,3 @@ export class GoogleSignInUnavailableException extends DomainException {
     );
   }
 }
-
-/** Reset codes by WhatsApp/SMS wait for the messaging integration. */
-export class PhoneChannelUnavailableException extends DomainException {
-  constructor() {
-    super(
-      HttpStatus.BAD_REQUEST,
-      ErrorCode.CHANNEL_UNAVAILABLE,
-      'Reset codes by phone aren’t available yet. Please choose email.',
-    );
-  }
-}

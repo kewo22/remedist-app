@@ -150,9 +150,12 @@ export class OtpService {
     }
   }
 
-  /** Records an issued code (hashed). The row is also the send ledger the limits count. */
-  async recordIssued(options: IssueCodeOptions): Promise<void> {
-    await this.repository.create({
+  /**
+   * Records an issued code (hashed). The row is also the send ledger the limits count, so record
+   * failed and skipped sends too. Returns when the code expires.
+   */
+  async recordIssued(options: IssueCodeOptions): Promise<Date> {
+    const { expiresAt } = await this.repository.create({
       identifier: options.identifier,
       ipAddress: options.ipAddress ?? UNKNOWN_IP,
       purpose: options.purpose,
@@ -161,7 +164,8 @@ export class OtpService {
       ttlMinutes: options.ttlMinutes,
       deliveryStatus: options.deliveryStatus,
     });
-    this.logEvent('send_allowed', options.identifier, options.purpose, options.deliveryStatus);
+    this.logEvent('send_allowed', options.identifier, options.purpose, `${options.channel}, ${options.deliveryStatus}`);
+    return expiresAt;
   }
 
   /** Seconds the client must wait before the next send, so the page can count down straight away. */

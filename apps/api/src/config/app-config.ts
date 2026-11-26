@@ -40,6 +40,12 @@ export abstract class AppConfig {
     /** Staff addresses for security alerts. May be empty. */
     readonly adminAlertEmails: readonly string[];
   };
+  abstract readonly twilio: {
+    readonly accountSid?: string;
+    readonly authToken?: string;
+    readonly whatsappFrom?: string;
+    readonly smsFrom?: string;
+  };
   abstract readonly google: {
     /** Unset means Google sign-in only accepts `demo:` tokens, and only outside production. */
     readonly oauthClientId?: string;
@@ -110,6 +116,12 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         .split(',')
         .map((address) => address.trim())
         .filter((address) => address !== ''),
+    },
+    twilio: {
+      accountSid: vars.TWILIO_ACCOUNT_SID,
+      authToken: vars.TWILIO_AUTH_TOKEN,
+      whatsappFrom: vars.TWILIO_WHATSAPP_FROM,
+      smsFrom: vars.TWILIO_SMS_FROM,
     },
     google: { oauthClientId: vars.GOOGLE_OAUTH_CLIENT_ID },
     turnstile: { secretKey: vars.TURNSTILE_SECRET_KEY },

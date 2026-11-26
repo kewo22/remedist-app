@@ -24,6 +24,7 @@ import { RefreshSessionsService, StartedSession } from '../../common/auth/refres
 import { AppConfig } from '../../config/app-config';
 import { DatabaseService } from '../../database/database.service';
 import { EmailMessage, EmailProvider, maskEmail } from '../../integrations/email/email.provider';
+import { PhoneMessenger, maskPhone } from '../../integrations/messaging/phone-messenger';
 import {
   GoogleIdentity,
   GoogleIdentityVerifier,
@@ -34,7 +35,7 @@ import { ContactsRepository } from '../contacts/contacts.repository';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EMAIL_VERIFICATION_CODE_TTL_MINUTES } from '../otp/otp.constants';
 import { OtpService } from '../otp/otp.service';
-import type { OtpDeliveryStatus, OtpIdentifier } from '../otp/otp.types';
+import type { OtpChannel, OtpDeliveryStatus, OtpIdentifier } from '../otp/otp.types';
 import {
   EMAIL_VERIFY_LIMITS,
   EMAIL_VERIFY_THROTTLE_PURPOSE,
@@ -46,7 +47,6 @@ import { accountExistsEmail, passwordResetCodeEmail, verificationCodeEmail } fro
 import {
   GoogleSignInFailedException,
   GoogleSignInUnavailableException,
-  PhoneChannelUnavailableException,
 } from './client-auth.exceptions';
 import { ClientAccountRow, ClientAuthRepository } from './client-auth.repository';
 
@@ -82,6 +82,7 @@ export class ClientAuthService implements OnModuleInit {
     private readonly throttle: LoginThrottleService,
     private readonly otp: OtpService,
     private readonly email: EmailProvider,
+    private readonly phone: PhoneMessenger,
     private readonly google: GoogleIdentityVerifier,
     private readonly notifications: NotificationsService,
     private readonly audit: AuditLogRepository,
@@ -168,7 +169,7 @@ export class ClientAuthService implements OnModuleInit {
       ttlMinutes: EMAIL_VERIFICATION_CODE_TTL_MINUTES,
       deliveryStatus: status,
     });
-    return { email, devCode: this.devCode(status, code) };
+    return { email, devCode: this.devCode(status, this.email.isDemo, code) };
   }
 
   /** Checks the emailed code, marks the email verified and signs the client in. */
@@ -292,9 +293,10 @@ export class ClientAuthService implements OnModuleInit {
   // ── Password reset ───────────────────────────────────────────────────────────────────────
 
   /**
-   * Sends a reset code. The same answer, after the same checks, whether or not the email has an
-   * account with a password: the code is only actually sent when it does. Full OTP protection:
-   * blocklist, daily cap, windows, cooldown, and Turnstile from the second request.
+   * Sends a reset code by email, or by WhatsApp/SMS to the phone on the client's contact record.
+   * The same answer, after the same checks, whether or not the account exists, has a password, or
+   * (for phone) has a number on file: the code is only actually sent when it can be. Full OTP
+   * protection: blocklist, daily cap, windows, cooldown, and Turnstile from the second request.
    */
   async forgotPassword(
     email: string,
@@ -302,38 +304,43 @@ export class ClientAuthService implements OnModuleInit {
     turnstileToken: string | undefined,
     client: ClientInfo,
   ): Promise<ForgotPasswordResponse> {
-    if (channel === 'phone') {
-      throw new PhoneChannelUnavailableException();
-    }
-    const identifier = emailIdentifier(email);
-    const account = await this.repository.findByEmail(email);
-    const eligible = account?.password_hash != null;
+    const target = await this.resolveResetTarget(email, channel);
 
-    await this.otp.assertCanSend(identifier, client.ipAddress, 'password_reset', RESET_DAILY_CAP_MESSAGE);
-    await this.otp.assertChallengePassed(identifier, client.ipAddress, 'password_reset', turnstileToken);
+    await this.otp.assertCanSend(target.identifier, client.ipAddress, 'password_reset', RESET_DAILY_CAP_MESSAGE);
+    await this.otp.assertChallengePassed(target.identifier, client.ipAddress, 'password_reset', turnstileToken);
 
     const code = sixDigitCode();
     const ttlMinutes = this.config.otp.codeTtlMinutes;
-    let status: OtpDeliveryStatus = 'skipped';
-    if (account && eligible) {
-      status = await this.sendQuietly(passwordResetCodeEmail(email, account.name, code, ttlMinutes));
+    let sent: { channel: OtpChannel; status: OtpDeliveryStatus; demo: boolean } = {
+      channel: channel === 'phone' ? 'sms' : 'email',
+      status: 'skipped',
+      demo: false,
+    };
+    if (target.account && target.identifier.kind === 'phone') {
+      sent = await this.sendPhoneQuietly(
+        target.identifier.value,
+        `Your Remedist password reset code is ${code}. It expires in ${ttlMinutes} minutes.`,
+      );
+    } else if (target.account) {
+      const status = await this.sendQuietly(passwordResetCodeEmail(email, target.account.name, code, ttlMinutes));
+      sent = { channel: 'email', status, demo: this.email.isDemo };
     } else {
       await failDelay();
     }
     await this.otp.recordIssued({
-      identifier,
+      identifier: target.identifier,
       ipAddress: client.ipAddress,
       purpose: 'password_reset',
-      channel: 'email',
+      channel: sent.channel,
       code,
       ttlMinutes,
-      deliveryStatus: status,
+      deliveryStatus: sent.status,
     });
 
     return {
       channel,
-      nextResendWaitSeconds: await this.otp.nextCooldownSeconds(identifier),
-      devCode: eligible ? this.devCode(status, code) : undefined,
+      nextResendWaitSeconds: await this.otp.nextCooldownSeconds(target.identifier),
+      devCode: target.account ? this.devCode(sent.status, sent.demo, code) : undefined,
     };
   }
 
@@ -348,13 +355,8 @@ export class ClientAuthService implements OnModuleInit {
     newPassword: string,
     client: ClientInfo,
   ): Promise<IssuedClientSession> {
-    if (channel === 'phone') {
-      throw new PhoneChannelUnavailableException();
-    }
-    const account = await this.repository.findByEmail(email);
-    const result = account?.password_hash
-      ? await this.otp.verify(emailIdentifier(email), 'password_reset', code)
-      : { verified: false };
+    const { account, identifier } = await this.resolveResetTarget(email, channel);
+    const result = account ? await this.otp.verify(identifier, 'password_reset', code) : { verified: false };
     if (!account || !result.verified) {
       await failDelay();
       throw new InvalidCodeException();
@@ -509,8 +511,43 @@ export class ClientAuthService implements OnModuleInit {
     }
   }
 
-  /** The code itself, only outside production while email is in demo mode, so the flow is testable. */
-  private devCode(status: OtpDeliveryStatus, code: string): string | undefined {
-    return status === 'skipped' && this.email.isDemo && !this.config.isProduction ? code : undefined;
+  /** The phone twin of sendQuietly: WhatsApp, then SMS; a failure never changes the response. */
+  private async sendPhoneQuietly(
+    toE164: string,
+    body: string,
+  ): Promise<{ channel: OtpChannel; status: OtpDeliveryStatus; demo: boolean }> {
+    try {
+      const result = await this.phone.send(toE164, body);
+      return { channel: result.channel, status: result.status, demo: this.phone.isDemo };
+    } catch (error) {
+      this.logger.error(`Reset code to ${maskPhone(toE164)} failed`, error instanceof Error ? error.stack : undefined);
+      return { channel: 'sms', status: 'failed', demo: false };
+    }
+  }
+
+  /**
+   * Who a reset code goes to. Eligible only with a password (Google-only accounts have none) and,
+   * for the phone channel, a phone on the contact (set at Part 1 registration). When not eligible,
+   * `account` is undefined and the email is used as the identifier, so limits apply the same way.
+   */
+  private async resolveResetTarget(
+    email: string,
+    channel: PasswordResetChannel,
+  ): Promise<{ account?: ClientAccountRow; identifier: OtpIdentifier }> {
+    const account = await this.repository.findByEmail(email);
+    if (!account?.password_hash) {
+      return { identifier: emailIdentifier(email) };
+    }
+    if (channel === 'phone') {
+      return account.contact_phone
+        ? { account, identifier: { kind: 'phone', value: account.contact_phone } }
+        : { identifier: emailIdentifier(email) };
+    }
+    return { account, identifier: emailIdentifier(email) };
+  }
+
+  /** The code itself, only outside production while sending is in demo mode, so the flow is testable. */
+  private devCode(status: OtpDeliveryStatus, providerIsDemo: boolean, code: string): string | undefined {
+    return status === 'skipped' && providerIsDemo && !this.config.isProduction ? code : undefined;
   }
 }

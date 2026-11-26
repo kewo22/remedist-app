@@ -20,3 +20,11 @@ export const MAX_VERIFY_ATTEMPTS = 5;
 
 /** Email verification codes last longer than the rest, as in the old app. */
 export const EMAIL_VERIFICATION_CODE_TTL_MINUTES = 15;
+
+/** How long the proof from a passed phone check stays usable (to finish a booking or a login). */
+export const PHONE_VERIFICATION_TOKEN_TTL_SECONDS = 15 * 60;
+export const JWT_AUDIENCE_PHONE_VERIFICATION = 'phone-verification';
+
+/** The security overview and blocklist list sizes, as in the old app. */
+export const SECURITY_TOP_LIMIT = 8;
+export const BLOCKLIST_LIST_LIMIT = 200;
