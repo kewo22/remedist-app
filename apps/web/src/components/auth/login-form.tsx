@@ -91,6 +91,9 @@ export function LoginForm({ next }: { next: string }) {
           </Button>
         </FieldGroup>
       </form>
+      <Button asChild variant="outline" size="lg" className="w-full">
+        <Link href={`/login/phone${nextQuery}`}>Sign in with a phone code</Link>
+      </Button>
     </AuthCard>
   );
 }

@@ -28,6 +28,8 @@ const CHANNEL = 'email';
 const linkClass = 'font-medium text-primary underline-offset-4 hover:underline';
 
 interface Sent {
+  /** Changes with every code sent, so the reset step starts fresh for a new code. */
+  id: number;
   email: string;
   message: string;
   devCode: string | undefined;
@@ -52,7 +54,9 @@ export function ForgotPasswordFlow({ next }: { next: string }) {
     try {
       const { data, message } = await clientAuthApi.forgotPassword({ email, channel: CHANNEL, turnstileToken });
       setChallengeFor(null);
-      setSent({ email, message, devCode: data.devCode });
+      // A resend (straight away or after the security check) replaces the reset step.
+      if (sent) toast.success('We sent a new code.');
+      setSent({ id: (sent?.id ?? 0) + 1, email, message, devCode: data.devCode });
       wait.start(data.nextResendWaitSeconds);
       return { ok: true };
     } catch (error) {
@@ -101,6 +105,7 @@ export function ForgotPasswordFlow({ next }: { next: string }) {
   if (sent) {
     return (
       <ResetStep
+        key={sent.id}
         sent={sent}
         secondsLeft={wait.secondsLeft}
         requestCode={requestCode}
@@ -218,18 +223,14 @@ function ResetStep({
     }
   }
 
+  // On success the flow remounts this step (keyed by sent.id), clearing the code.
   async function resend() {
     setResending(true);
     setResendError(null);
     const outcome = await requestCode(sent.email);
+    if (outcome.ok) return;
     setResending(false);
-    if (outcome.ok) {
-      setCodeRejected(false);
-      form.resetField('code');
-      toast.success('We sent a new code.');
-    } else if (!isApiError(outcome.error, 'CHALLENGE_REQUIRED')) {
-      setResendError(getErrorMessage(outcome.error));
-    }
+    if (!isApiError(outcome.error, 'CHALLENGE_REQUIRED')) setResendError(getErrorMessage(outcome.error));
   }
 
   return (

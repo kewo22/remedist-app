@@ -9,6 +9,7 @@ import {
   CLIENT_AUTH_ROUTES,
   type ClientGoogleSignInRequest,
   type ClientLoginRequest,
+  type ClientPhoneSignInRequest,
   type ClientProfile,
   type ClientRegisterRequest,
   type ClientRegisterResponse,
@@ -33,6 +34,8 @@ export interface ClientAuthApi {
   verifyEmail(body: ClientVerifyEmailRequest): Promise<WithMessage<ClientSession>>;
   login(body: ClientLoginRequest): Promise<WithMessage<ClientSession>>;
   google(body: ClientGoogleSignInRequest): Promise<WithMessage<ClientSession>>;
+  /** Signs in with the token from phoneOtpApi.verify (purpose 'login'). */
+  phone(body: ClientPhoneSignInRequest): Promise<WithMessage<ClientSession>>;
   forgotPassword(body: ForgotPasswordRequest): Promise<WithMessage<ForgotPasswordResponse>>;
   resetPassword(body: ResetPasswordRequest): Promise<WithMessage<ClientSession>>;
   refresh(): Promise<ClientSession>;
@@ -51,6 +54,7 @@ const liveClientAuthApi: ClientAuthApi = {
   verifyEmail: (body) => post(CLIENT_AUTH_ROUTES.verifyEmail, body),
   login: (body) => post(CLIENT_AUTH_ROUTES.login, body),
   google: (body) => post(CLIENT_AUTH_ROUTES.google, body),
+  phone: (body) => post(CLIENT_AUTH_ROUTES.phone, body),
   forgotPassword: (body) => post(CLIENT_AUTH_ROUTES.forgotPassword, body),
   resetPassword: (body) => post(CLIENT_AUTH_ROUTES.resetPassword, body),
   refresh: () => apiRequest<ClientSession>(CLIENT_AUTH_ROUTES.refresh, { method: 'POST' }),

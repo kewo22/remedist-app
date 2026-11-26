@@ -5,6 +5,7 @@
 //   - google.only@example.com               a Google-only account: password login fails, use Google
 //   - too-many@example.com                  login and sign-up answer 429 with a 30 s Retry-After
 //   - any new email on the sign-up page     then the code 123456 (5 wrong guesses use it up)
+// Phone sign-in: see mocks/phone-otp.ts for the numbers.
 // Forgot password: code 123456. Asking again within 15 minutes needs the security check, and
 // within 60 seconds answers 429.
 //
@@ -19,6 +20,7 @@ import {
 } from '@remedist/shared';
 import type { ClientAuthApi, WithMessage } from '../client-auth';
 import { mockFail, mockOk } from './helpers';
+import { MOCK_PHONE_PROOF_PREFIX } from './phone-otp';
 
 const MOCK_CODE = '123456';
 const MAX_WRONG_GUESSES = 5;
@@ -72,7 +74,13 @@ const accounts = new Map<string, MockAccount>([
   ],
 ]);
 
-const pendingSignUps = new Map<string, PendingCode & { name: string; password: string }>();
+/** The phone on each account's contact record (E.164). Two accounts sharing one number is allowed. */
+const accountEmailsByPhone = new Map<string, string[]>([
+  ['+94770000001', ['nimali@example.com']],
+  ['+94770000003', ['nimali@example.com', 'google.only@example.com']],
+]);
+
+const pendingSignUps =new Map<string, PendingCode & { name: string; password: string }>();
 const pendingResets = new Map<string, PendingCode & { sentAt: number }>();
 
 const tooManyAttempts = (seconds: number) =>
@@ -176,6 +184,20 @@ export const mockClientAuthApi: ClientAuthApi = {
     const email = prefix === 'demo' && rawEmail ? normalizeEmail(rawEmail) : 'google.user@example.com';
     const account = accounts.get(email) ?? newAccount(email, name ?? 'Google User', null);
     return issueSession(account.profile, 'Signed in with Google');
+  },
+
+  phone: ({ phoneVerificationToken }) => {
+    const [prefix, purpose, phoneNumber] = phoneVerificationToken.split(':');
+    if (prefix !== MOCK_PHONE_PROOF_PREFIX || purpose !== 'login' || !phoneNumber) {
+      return mockFail(401, 'PHONE_NOT_VERIFIED', 'Please verify your phone number again.');
+    }
+    const emails = accountEmailsByPhone.get(phoneNumber) ?? [];
+    if (emails.length > 1) {
+      return mockFail(409, 'PHONE_ACCOUNT_AMBIGUOUS', 'More than one account uses this number. Please sign in with your email.');
+    }
+    const account = emails[0] ? accounts.get(emails[0]) : undefined;
+    if (!account) return mockFail(404, 'PHONE_ACCOUNT_NOT_FOUND', "We couldn't find an account for that number.");
+    return issueSession(account.profile, 'Signed in');
   },
 
   forgotPassword: ({ email: rawEmail, channel, turnstileToken }) => {
