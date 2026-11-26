@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { CalendarIcon, EllipsisIcon, InfoIcon, PlusIcon } from 'lucide-react';
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { DataTable, type DataTableColumn } from '@/components/common/data-table';
@@ -11,7 +11,6 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogClose,
@@ -30,11 +29,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Sheet,
   SheetContent,
@@ -45,14 +39,12 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { getErrorMessage, getFieldErrors, type FieldErrors } from '@/lib/api/errors';
 import { healthApi, healthKeys } from '@/lib/api/health';
-import { mockFail, mockOk } from '@/lib/api/mocks/helpers';
+import { mockOk } from '@/lib/api/mocks/helpers';
 import { env } from '@/lib/env';
+import { SampleForm } from './sample-form';
 
 const SWATCHES = [
   { name: 'Green', token: 'bg-brand-green', hex: '#1E6B3E' },
@@ -323,117 +315,6 @@ function ApiStatus() {
             Database latency {health.data.database.latencyMs} ms, up {health.data.uptimeSeconds} s
           </p>
         )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function SampleForm() {
-  const [submitting, setSubmitting] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [formError, setFormError] = useState<string | null>(null);
-
-  // Simulates the API rejecting the form, to show how VALIDATION_FAILED maps onto fields.
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSubmitting(true);
-    setFormError(null);
-    try {
-      await mockFail(400, 'VALIDATION_FAILED', 'Please check the highlighted fields.', [
-        { field: 'email', messages: ['Enter a valid email address.'] },
-        { field: 'phone', messages: ['Enter the number with its country code, e.g. +94 77 123 4567.'] },
-      ]);
-    } catch (error) {
-      setFieldErrors(getFieldErrors(error));
-      setFormError(getErrorMessage(error));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  const errorsFor = (field: string) => fieldErrors[field]?.map((message) => ({ message }));
-
-  return (
-    <Card className="max-w-xl">
-      <CardContent>
-        <form onSubmit={handleSubmit} noValidate>
-          <FieldGroup>
-            <Field data-invalid={Boolean(fieldErrors.name) || undefined}>
-              <FieldLabel htmlFor="name">Full name</FieldLabel>
-              <Input id="name" name="name" autoComplete="name" />
-            </Field>
-            <Field data-invalid={Boolean(fieldErrors.email) || undefined}>
-              <FieldLabel htmlFor="email">Email</FieldLabel>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                aria-invalid={Boolean(fieldErrors.email) || undefined}
-                aria-describedby={fieldErrors.email ? 'email-error' : undefined}
-              />
-              <FieldError id="email-error" errors={errorsFor('email')} />
-            </Field>
-            <Field data-invalid={Boolean(fieldErrors.phone) || undefined}>
-              <FieldLabel htmlFor="phone">WhatsApp number</FieldLabel>
-              <Input
-                id="phone"
-                name="phone"
-                type="tel"
-                autoComplete="tel"
-                aria-invalid={Boolean(fieldErrors.phone) || undefined}
-                aria-describedby={fieldErrors.phone ? 'phone-hint phone-error' : 'phone-hint'}
-              />
-              <FieldDescription id="phone-hint">We send reminders here.</FieldDescription>
-              <FieldError id="phone-error" errors={errorsFor('phone')} />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="session-type">Session type</FieldLabel>
-              <Select name="sessionType">
-                <SelectTrigger id="session-type" className="w-full">
-                  <SelectValue placeholder="Choose a session" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="initial">Initial consultation</SelectItem>
-                  <SelectItem value="follow-up">Follow-up session</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field>
-              <FieldLabel id="payment-label">Payment</FieldLabel>
-              <RadioGroup defaultValue="now" name="payment" aria-labelledby="payment-label">
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem value="now" id="pay-now" />
-                  <Label htmlFor="pay-now">Pay now</Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem value="after" id="pay-after" />
-                  <Label htmlFor="pay-after">Pay after the session</Label>
-                </div>
-              </RadioGroup>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="notes">Anything we should know?</FieldLabel>
-              <Textarea id="notes" name="notes" rows={3} />
-            </Field>
-            <Field orientation="horizontal">
-              <Switch id="reminders" defaultChecked />
-              <FieldLabel htmlFor="reminders">WhatsApp reminders</FieldLabel>
-            </Field>
-            <Field orientation="horizontal">
-              <Checkbox id="terms" name="terms" />
-              <FieldLabel htmlFor="terms">I agree to the terms and consent</FieldLabel>
-            </Field>
-            {formError && (
-              <p role="alert" className="text-sm text-destructive">
-                {formError}
-              </p>
-            )}
-            <Button type="submit" size="lg" loading={submitting} className="w-full sm:w-auto">
-              Submit (simulates a validation error)
-            </Button>
-          </FieldGroup>
-        </form>
       </CardContent>
     </Card>
   );
