@@ -1,6 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
+import { isValidPhone, normalizePhone } from '@remedist/shared';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -19,14 +20,17 @@ import { mockFail } from '@/lib/api/mocks/helpers';
 import { applyApiErrors } from '@/lib/forms';
 
 // Client-side checks give quick feedback; the API still validates everything.
-// TODO: use the shared phone rule (packages/shared/rules) once it's on main.
+// The phone check uses the same shared rule as the API's @IsPhone(). The value is sent as typed:
+// the API normalises it to the stored "+<digits>" form.
 const schema = z.object({
   name: z.string().trim().min(1, { error: 'Enter your full name.' }),
   email: z.email({ error: 'Enter a valid email address.' }),
   phone: z
     .string()
     .trim()
-    .regex(/^\+[0-9][0-9\s-]{6,19}$/, { error: 'Enter the number with its country code, e.g. +94 77 123 4567.' }),
+    .refine((value) => isValidPhone(normalizePhone(value)), {
+      error: 'Enter the number with its country code, e.g. +94 77 123 4567.',
+    }),
   sessionType: z.enum(['initial', 'follow-up'], { error: 'Choose a session type.' }),
   payment: z.enum(['now', 'after']),
   notes: z.string().max(1000, { error: 'Keep this under 1,000 characters.' }),
