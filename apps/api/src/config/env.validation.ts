@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, Max, Min, ValidateBy, ValidationOptions, buildMessage } from 'class-validator';
+import { IsIn, IsInt, IsString, Max, Min, MinLength, ValidateBy, ValidationOptions, buildMessage } from 'class-validator';
 
 export const NODE_ENVS = ['development', 'test', 'production'] as const;
 export type NodeEnv = (typeof NODE_ENVS)[number];
@@ -73,4 +73,9 @@ export class EnvironmentVariables {
   /** Neon direct URL, the name `neon env pull` writes. Migrations and job locks. Required: no default. */
   @IsUrlWithProtocol(['postgres', 'postgresql'])
   DATABASE_URL_UNPOOLED!: string;
+
+  /** Signs staff access tokens. Required: a long random string, e.g. `openssl rand -base64 48`. */
+  @MinLength(32, { message: 'ADMIN_JWT_SECRET must be at least 32 characters (use a random value)' })
+  @IsString()
+  ADMIN_JWT_SECRET!: string;
 }

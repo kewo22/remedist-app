@@ -131,7 +131,17 @@ modules/bookings/
 - Public error messages must never reveal internals. That means which rate limit was hit, whether a phone or email is registered, or stack traces.
 
 ### Auth
-- Use JWT guards: `ClientAuthGuard` for patients and `StaffAuthGuard` for staff. Get the user with `@CurrentUser()`.
+- **Protecting a staff route:** put `@StaffOnly(Permission.X, ...)` on it (from `common/auth/auth.decorators.ts`). It needs every listed permission, and at least one must be listed. Get the user with `@CurrentUser()`.
+  - `@StaffSignedIn()` is only for a staff member's own account (`me`, `logout-all`). `@PublicRoute()` marks routes that need no token.
+  - The global `AdminRoutePolicyGuard` refuses any `admin/...` route without one of these, so a forgotten guard fails closed.
+  - Patients will use `ClientAuthGuard` (task 04).
+- **How staff sessions work** (`modules/staff-auth`, routes in `STAFF_AUTH_ROUTES`):
+  - **Tokens:** a 15-minute access JWT (`ADMIN_JWT_SECRET`, claims `sub`, `sid`, `tv`) is sent as `Authorization: Bearer`. The refresh token sits in the httpOnly `SameSite=Strict` cookie `remedist_staff_rt`, scoped to `/api/v1/admin/auth`. Sessions last 12 hours from login, as in the old app.
+  - **The guard** re-reads the session, `is_active`, `token_version` and permissions on every request, so logout, sign-out-everywhere, disabling a login and role changes all apply immediately.
+  - **Refresh rotates the cookie.** A replaced token presented again more than 10 s later revokes the whole chain (theft). Within 10 s it gets 409 `REFRESH_CONFLICT`: the web should refresh single-flight and retry once.
+  - **CSRF:** refresh and logout also require the `Origin` header to match `WEB_URL` when one is sent.
+  - **Login** keeps the old throttle (`auth.login_attempts`, purpose `admin_login`: 5 per email and 20 per IP in 15 min, 20 and 80 in 24 h), the generic "That email or password doesn't match." for unknown emails, wrong passwords and disabled logins, and the 300–500 ms fail delay. A 429 carries `Retry-After`.
+  - **super_admin** sign-in returns 403 `MFA_REQUIRED` until MFA is built.
 - Staff routes check **permissions, never role names**. Roles and permissions are defined once in `packages/shared/src/enums/role.ts` (`ROLE_DEFINITIONS`); the seed copies them into `auth.roles` and `auth.role_permissions`. One person can hold several roles: Rauzan is `owner` + `doctor`.
 - Role rules:
   - `super_admin` is the developer's system role. It's granted only by seed or CLI, never from the CRM, and requires MFA. Its reads of clinical records are written to `clinical.access_log` like everyone else's.
@@ -306,7 +316,7 @@ Each app has its own `.env` and `.env.example`. The main ones:
 - `NODE_ENV`, `PORT` (3001), `WEB_URL` (for CORS and links in emails), `APP_URL`, `LOG_LEVEL`. `WEB_URL` and `APP_URL` are required in production.
 - `DATABASE_URL` (pooled), `DATABASE_URL_UNPOOLED` (direct: migrations and job locks), `DATABASE_AI_URL` (read-only role for Ask Remedist). The first two are Neon's own names: run `neon env pull` in `apps/api` to fill them in `.env` without touching other lines.
 - Local development uses the Neon `dev` branch, pinned in the git-ignored `apps/api/.neon` (`neon checkout dev`). Never point a local `.env` at `production`.
-- `JWT_SECRET`, `ADMIN_JWT_SECRET`
+- `ADMIN_JWT_SECRET` (staff access tokens, required, 32+ random characters; the migrate and seed commands load the same config, so they need it too), `JWT_SECRET` (patients, task 04; must differ)
 - `PAYHERE_MERCHANT_ID`, `PAYHERE_MERCHANT_SECRET`, `PAYHERE_MODE`
 - `TWILIO_*`, `RESEND_API_KEY`
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`

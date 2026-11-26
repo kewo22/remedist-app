@@ -1,5 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { createLogger } from './common/logging/create-logger';
 import { requestLoggingMiddleware } from './common/logging/request-logging.middleware';
@@ -11,10 +13,17 @@ async function bootstrap(): Promise<void> {
   // Validate settings before anything else, so a bad .env fails fast with a clear list.
   const config = getAppConfig();
 
-  const app = await NestFactory.create(AppModule, { logger: createLogger(config) });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: createLogger(config) });
+
+  // Behind Railway's proxy, so req.ip is the client (login throttling, sessions, audit).
+  if (config.isProduction) {
+    app.set('trust proxy', 1);
+  }
 
   // First middleware, so every request (including 404s and body-parser errors) gets an ID and a log line.
   app.use(requestLoggingMiddleware);
+  // Reads the staff refresh-token cookie on the auth routes.
+  app.use(cookieParser());
 
   // /health stays outside the versioned prefix so Railway can probe it directly.
   app.setGlobalPrefix(API_PREFIX, { exclude: ['health'] });

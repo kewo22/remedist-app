@@ -92,6 +92,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
       path,
       timestamp: new Date().toISOString(),
     };
+    if (exception instanceof DomainException) {
+      for (const [name, value] of Object.entries(exception.headers)) {
+        response.setHeader(name, value);
+      }
+    }
     response.status(resolved.status).json(body);
   }
 
