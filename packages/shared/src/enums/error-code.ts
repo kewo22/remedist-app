@@ -36,6 +36,10 @@ export const ErrorCode = {
   GOOGLE_SIGN_IN_FAILED: 'GOOGLE_SIGN_IN_FAILED',
   /** That delivery channel (for example a reset code by phone) isn't available. */
   CHANNEL_UNAVAILABLE: 'CHANNEL_UNAVAILABLE',
+  /** A phone code is used up or expired: request a new one. (A wrong guess is INVALID_CODE.) */
+  CODE_EXPIRED: 'CODE_EXPIRED',
+  /** A phone verification token is missing, invalid, expired or for another purpose. */
+  PHONE_NOT_VERIFIED: 'PHONE_NOT_VERIFIED',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
