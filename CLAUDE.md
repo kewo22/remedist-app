@@ -28,6 +28,7 @@ The API and the web app are built **at the same time, in separate Git worktrees*
 | Web | Next.js (App Router), TypeScript `strict: true`, same TypeScript version as the API |
 | UI | Tailwind CSS + shadcn/ui, with colours and fonts from the Remedist brand guideline |
 | Web data fetching | TanStack Query for client components; server components call the API client directly |
+| Web forms | react-hook-form + zod (via `@hookform/resolvers`) |
 | Database | Neon Postgres (AWS Singapore). Pooled URL for the app, direct URL for migrations and job locks. No SQLite. |
 | Data access | `pg` via a `DatabaseService`. Hand-written SQL lives only in repository classes. No ORM. |
 | Migrations | Numbered `.sql` files plus a runner that records them in a `schema_migrations` table |
@@ -208,7 +209,10 @@ Keep each behind a small service so it can move to Postgres or Redis later witho
 - All API calls go through `apps/web/src/lib/api/`. Components never call `fetch` directly.
 - Each domain has one file (for example `lib/api/bookings.ts`) that exports a typed object built from the shared contract. It has a **live** implementation, which calls the API and unwraps the envelope, and a **mock** implementation in `lib/api/mocks/`. Pick between them with `selectApi` (`lib/api/mode.ts`); `lib/api/health.ts` is the template.
 - `lib/api/client.ts` is the only code that calls `fetch`. It sends cookies (`credentials: 'include'`), returns `data`, throws `ApiClientError` (with `errorCode` and `fieldErrors`) or `NetworkError`, and with `auth: 'client' | 'staff'` refreshes the session once on a 401. Login tokens are httpOnly cookies set by the API; the web app never stores tokens. Server components forward the session with `forwardedAuthHeaders()` from `lib/api/server.ts`.
-- Show errors with `getErrorMessage(error)` or `<ErrorAlert>`; map validation errors onto fields with `getFieldErrors(error)`.
+- Show errors with `getErrorMessage(error)` or `<ErrorAlert>`.
+- Forms use react-hook-form with a zod schema (`zodResolver`) and `<FormField>` from `components/common/form-field.tsx`, which links the label, hint and error for screen readers. `app/ui-kit/sample-form.tsx` is the template.
+- Zod schemas are for quick feedback only; the API is what validates. On a failed submit, call `applyApiErrors(error, form.setError, fields)` from `lib/forms.ts`: it puts each `VALIDATION_FAILED` message on its field and the envelope message on `errors.root.server`.
+- Zod checks that mirror a business rule (phone format, the 24-hour cutoff...) call the function from `packages/shared/rules`, never a copy of it.
 - Colours and fonts are tokens in `app/globals.css` (from the old site's palette). Use the token classes (`bg-primary`, `text-muted-foreground`, `bg-brand-mint`...), never hex values in components.
 - `NEXT_PUBLIC_API_MODE=mock` uses the mocks, and `live` uses the real API at `NEXT_PUBLIC_API_URL`. Default to `mock` until the API domain exists.
 - Mocks return realistic data shaped exactly like the contract. They also simulate errors, using the real `errorCode` values, and a short delay, so loading and error states get built too.
