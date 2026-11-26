@@ -5,7 +5,7 @@ import { CalendarIcon, EllipsisIcon, InfoIcon, PlusIcon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
-import { DataTable, type DataTableColumn } from '@/components/common/data-table';
+import { DataTable, dataTableColumnHelper } from '@/components/common/data-table';
 import { ErrorAlert } from '@/components/common/error-alert';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -63,17 +63,28 @@ interface SampleBooking {
   id: string;
   client: string;
   session: string;
-  when: string;
+  /** ISO 8601, as the API sends timestamps. */
+  startsAt: string;
   status: 'confirmed' | 'pending_payment' | 'cancelled' | 'completed';
 }
 
 // Fictional sample rows.
 const SAMPLE_BOOKINGS: SampleBooking[] = [
-  { id: 'b1', client: 'Amara Perera', session: 'Initial consultation', when: 'Mon 2 Dec, 10:00', status: 'confirmed' },
-  { id: 'b2', client: 'Jonah Whitfield', session: 'Follow-up session', when: 'Mon 2 Dec, 11:30', status: 'pending_payment' },
-  { id: 'b3', client: 'Nadia Fernandez', session: 'Follow-up session', when: 'Tue 3 Dec, 09:00', status: 'cancelled' },
-  { id: 'b4', client: 'Ravi Senanayake', session: 'Initial consultation', when: 'Wed 4 Dec, 14:00', status: 'completed' },
+  { id: 'b1', client: 'Nadia Fernandez', session: 'Follow-up session', startsAt: '2026-12-03T03:30:00Z', status: 'cancelled' },
+  { id: 'b2', client: 'Amara Perera', session: 'Initial consultation', startsAt: '2026-12-02T04:30:00Z', status: 'confirmed' },
+  { id: 'b3', client: 'Ravi Senanayake', session: 'Initial consultation', startsAt: '2026-12-04T08:30:00Z', status: 'completed' },
+  { id: 'b4', client: 'Jonah Whitfield', session: 'Follow-up session', startsAt: '2026-12-02T06:00:00Z', status: 'pending_payment' },
 ];
+
+// Clinic time, so the server render and the browser agree.
+const sessionTime = new Intl.DateTimeFormat('en-GB', {
+  weekday: 'short',
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: 'Asia/Colombo',
+});
 
 const STATUS_BADGE: Record<SampleBooking['status'], { label: string; variant: 'success' | 'warning' | 'danger' | 'neutral' }> = {
   confirmed: { label: 'Confirmed', variant: 'success' },
@@ -82,17 +93,31 @@ const STATUS_BADGE: Record<SampleBooking['status'], { label: string; variant: 's
   completed: { label: 'Completed', variant: 'neutral' },
 };
 
-const BOOKING_COLUMNS: DataTableColumn<SampleBooking>[] = [
-  { id: 'client', header: 'Client', cell: (row) => <span className="font-medium">{row.client}</span> },
-  { id: 'session', header: 'Session', cell: (row) => row.session, className: 'hidden sm:table-cell' },
-  { id: 'when', header: 'When', cell: (row) => row.when },
-  {
-    id: 'status',
+const col = dataTableColumnHelper<SampleBooking>();
+
+const BOOKING_COLUMNS = col.columns([
+  col.accessor('client', {
+    header: 'Client',
+    sortFn: 'text',
+    cell: (info) => <span className="font-medium">{info.getValue()}</span>,
+  }),
+  col.accessor('session', { header: 'Session', sortFn: 'text', meta: { className: 'hidden sm:table-cell' } }),
+  col.accessor((row) => new Date(row.startsAt), {
+    id: 'when',
+    header: 'When',
+    sortFn: 'datetime',
+    cell: (info) => sessionTime.format(info.getValue()),
+  }),
+  col.accessor('status', {
     header: 'Status',
-    align: 'right',
-    cell: (row) => <Badge variant={STATUS_BADGE[row.status].variant}>{STATUS_BADGE[row.status].label}</Badge>,
-  },
-];
+    enableSorting: false,
+    meta: { align: 'right' },
+    cell: (info) => {
+      const badge = STATUS_BADGE[info.getValue()];
+      return <Badge variant={badge.variant}>{badge.label}</Badge>;
+    },
+  }),
+]);
 
 export function UiKit() {
   return (
