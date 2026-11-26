@@ -150,7 +150,7 @@ modules/bookings/
   - **Email codes:** verification and reset codes are 6 digits, stored bcrypt-hashed in `auth.otp_requests` (purposes `email_verification`, `password_reset`). That row is also the send ledger the OTP limits count. Verification codes last 15 minutes and reset codes `OTP_CODE_TTL_MINUTES`. A code allows 5 wrong guesses, and verify is also throttled (`email_verify`: 5 per email per 15 min and per 24 h).
   - **Send limits:** every code send goes through `OtpService` (`modules/otp`): blocklist, then the daily cap, then the per-identifier/IP windows, then the cooldown. Password reset also needs Turnstile from the second send in 15 minutes (`CHALLENGE_REQUIRED`).
   - **Google:** verified server-side with `google-auth-library`. Google must have verified the email. Linking to an account whose email was never verified removes its password and takes Google's name (recorded in `audit_log`). Without `GOOGLE_OAUTH_CLIENT_ID`, only `demo:<email>[:<name>]` tokens work, and only outside production.
-  - **Reset:** signs out every device (bumps `token_version` and ends all sessions), then signs this one in. The `phone` channel returns `CHANNEL_UNAVAILABLE` until WhatsApp/SMS sending is built.
+  - **Reset:** signs out every device (bumps `token_version` and ends all sessions), then signs this one in. The `phone` channel sends the code by WhatsApp/SMS to the phone on the client's contact (set at Part 1). Without one, the answer is the same and nothing is sent.
   - **No email leaks:** a provider failure never changes the response. It's logged and recorded as `failed`. In demo email mode outside production, responses include `devCode`.
 - Staff routes check **permissions, never role names**. Roles and permissions are defined once in `packages/shared/src/enums/role.ts` (`ROLE_DEFINITIONS`); the seed copies them into `auth.roles` and `auth.role_permissions`. One person can hold several roles: Rauzan is `owner` + `doctor`.
 - Role rules:
@@ -161,6 +161,12 @@ modules/bookings/
   - A doctor is bookable only with a `practitioners` row.
 - Check `token_version` (on `auth.staff_users` and `auth.patient_accounts`) so "log out everywhere" revokes old tokens. Refresh tokens rotate through `auth.sessions`: reusing a replaced token revokes the chain.
 - 6-digit codes (email verification, password reset, phone OTP) live in `auth.otp_requests`. `auth.one_time_tokens` is for link tokens such as staff invites. Only hashes are stored.
+- **Phone verification** (`modules/otp`, `PHONE_OTP_ROUTES`: `POST /public/otp/send` and `/verify`; purposes `login` and `booking_verification`):
+  - **Send:** goes through the full OTP limits, plus Turnstile from the second send in 15 minutes. The message goes by WhatsApp, then SMS (`PhoneMessenger`). If Twilio fails, the API returns 503 and the attempt still counts against the limits.
+  - **Check:** a wrong code gets 400 `INVALID_CODE`. Expired, used, too many guesses or never sent gets 410 `CODE_EXPIRED`.
+  - **Proof token:** success returns a 15-minute `phoneVerificationToken`. It's a JWT with the client secret but audience `phone-verification`, so it never works as a sign-in token.
+  - **Requiring a verified phone:** a step that needs one (booking, phone login) calls `PhoneVerificationService.requireVerifiedPhone(token, purpose, phone?)`. Never trust a "verified" flag from the browser.
+- **Security panel** (`SECURITY_ROUTES`, `@StaffOnly(Permission.SETTINGS_MANAGE)`, so owners can use it as in the old app): the 24-hour send overview, and listing, adding and removing blocklist entries. Every add and remove is audited. The daily-cap alert emails `ADMIN_ALERT_EMAILS` once per UTC day.
 
 ### Database
 - Only repositories run SQL, and every query is parameterised.
@@ -338,7 +344,7 @@ Each app has its own `.env` and `.env.example`. The main ones:
 - Local development uses the Neon `dev` branch, pinned in the git-ignored `apps/api/.neon` (`neon checkout dev`). Never point a local `.env` at `production`.
 - `ADMIN_JWT_SECRET` (staff access tokens) and `JWT_SECRET` (client access tokens): both required, 32+ random characters, and different from each other. The migrate and seed commands load the same config, so they need them too.
 - `PAYHERE_MERCHANT_ID`, `PAYHERE_MERCHANT_SECRET`, `PAYHERE_MODE`
-- `TWILIO_*`, `RESEND_API_KEY`, `EMAIL_FROM` (a Resend-verified domain), `ADMIN_ALERT_EMAILS` (security alerts, comma-separated)
+- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`, `TWILIO_SMS_FROM` (WhatsApp first, then SMS; at least one sender), `RESEND_API_KEY`, `EMAIL_FROM` (a Resend-verified domain), `ADMIN_ALERT_EMAILS` (security alerts, comma-separated)
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`
 - `ANTHROPIC_API_KEY`, `ASK_REMEDIST_MODEL`
 - `TURNSTILE_SECRET_KEY`, `SENTRY_DSN`

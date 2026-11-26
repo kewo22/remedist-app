@@ -13,6 +13,7 @@ import { ClientAuthModule } from './modules/client-auth/client-auth.module';
 import { ContactsModule } from './modules/contacts/contacts.repository';
 import { HealthModule } from './modules/health/health.module';
 import { NotificationsModule } from './modules/notifications/notifications.service';
+import { OtpModule } from './modules/otp/otp.module';
 import { StaffAuthModule } from './modules/staff-auth/staff-auth.module';
 
 @Module({
@@ -26,6 +27,7 @@ import { StaffAuthModule } from './modules/staff-auth/staff-auth.module';
     AuthCoreModule,
     StaffAuthModule,
     ClientAuthModule,
+    OtpModule,
     HealthModule,
   ],
   providers: [
