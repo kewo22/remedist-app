@@ -40,6 +40,12 @@ export const ErrorCode = {
   CODE_EXPIRED: 'CODE_EXPIRED',
   /** A phone verification token is missing, invalid, expired or for another purpose. */
   PHONE_NOT_VERIFIED: 'PHONE_NOT_VERIFIED',
+  /**
+   * A verified phone has no portal account. Safe to say: the person just proved they own the number.
+   */
+  PHONE_ACCOUNT_NOT_FOUND: 'PHONE_ACCOUNT_NOT_FOUND',
+  /** More than one portal account has this phone (for example family members): sign in by email. */
+  PHONE_ACCOUNT_AMBIGUOUS: 'PHONE_ACCOUNT_AMBIGUOUS',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

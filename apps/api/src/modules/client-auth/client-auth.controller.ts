@@ -14,6 +14,7 @@ import { ClientAuthService, IssuedClientSession } from './client-auth.service';
 import {
   ClientGoogleSignInDto,
   ClientLoginDto,
+  ClientPhoneSignInDto,
   ClientRegisterDto,
   ClientVerifyEmailDto,
   ForgotPasswordDto,
@@ -72,6 +73,18 @@ export class ClientAuthController {
     @Res({ passthrough: true }) response: Response,
   ): Promise<ClientSession> {
     return this.withCookie(response, await this.auth.signInWithGoogle(body.idToken, clientInfo(request)));
+  }
+
+  @Post('phone')
+  @PublicRoute()
+  @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Signed in')
+  async phone(
+    @Body() body: ClientPhoneSignInDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<ClientSession> {
+    return this.withCookie(response, await this.auth.signInWithPhone(body.phoneVerificationToken, clientInfo(request)));
   }
 
   @Post('forgot-password')

@@ -35,6 +35,7 @@ import { ContactsRepository } from '../contacts/contacts.repository';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EMAIL_VERIFICATION_CODE_TTL_MINUTES } from '../otp/otp.constants';
 import { OtpService } from '../otp/otp.service';
+import { PhoneVerificationService } from '../otp/phone-verification.service';
 import type { OtpChannel, OtpDeliveryStatus, OtpIdentifier } from '../otp/otp.types';
 import {
   EMAIL_VERIFY_LIMITS,
@@ -47,6 +48,8 @@ import { accountExistsEmail, passwordResetCodeEmail, verificationCodeEmail } fro
 import {
   GoogleSignInFailedException,
   GoogleSignInUnavailableException,
+  PhoneAccountAmbiguousException,
+  PhoneAccountNotFoundException,
 } from './client-auth.exceptions';
 import { ClientAccountRow, ClientAuthRepository } from './client-auth.repository';
 
@@ -85,6 +88,7 @@ export class ClientAuthService implements OnModuleInit {
     private readonly phone: PhoneMessenger,
     private readonly google: GoogleIdentityVerifier,
     private readonly notifications: NotificationsService,
+    private readonly phoneVerification: PhoneVerificationService,
     private readonly audit: AuditLogRepository,
     private readonly jwt: JwtService,
     private readonly config: AppConfig,
@@ -288,6 +292,47 @@ export class ClientAuthService implements OnModuleInit {
     });
 
     return this.signIn(accountId, client);
+  }
+
+  /**
+   * Phone code sign-in: exchanges the proof from /public/otp/verify (purpose 'login') for a session.
+   * Only an account whose contact has that phone, isn't archived and has a verified email counts.
+   * None is a 404 and several a 409: safe to say, because the caller just proved they own the
+   * number. The proof is spent in the same transaction that starts the session, so it works once.
+   */
+  async signInWithPhone(phoneVerificationToken: string, client: ClientInfo): Promise<IssuedClientSession> {
+    const verified = await this.phoneVerification.check(phoneVerificationToken, 'login');
+
+    const candidates = await this.repository.findSignInCandidatesByPhone(verified.phoneNumber);
+    const [account] = candidates;
+    if (!account) {
+      throw new PhoneAccountNotFoundException();
+    }
+    if (candidates.length > 1) {
+      throw new PhoneAccountAmbiguousException();
+    }
+
+    const started = await this.db.transaction(async (tx) => {
+      await this.phoneVerification.useVerifiedPhone(verified, 'login', tx);
+      const session = await this.sessions.start('patient', account.id, SESSION_TTL_SECONDS, client, tx);
+      await this.audit.record(
+        {
+          actorType: 'patient',
+          actorId: account.id,
+          actorLabel: account.name,
+          action: 'patient_account.signed_in',
+          entityType: 'patient_account',
+          entityId: account.id,
+          after: { method: 'phone' },
+          requestId: client.requestId,
+          ipAddress: client.ipAddress,
+        },
+        tx,
+      );
+      return session;
+    });
+    await this.repository.recordLogin(account.id);
+    return this.issue(started);
   }
 
   // ── Password reset ───────────────────────────────────────────────────────────────────────
