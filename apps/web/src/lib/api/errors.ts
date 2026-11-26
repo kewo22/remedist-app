@@ -18,13 +18,19 @@ export class ApiClientError extends Error {
   /** Per-field validation messages (VALIDATION_FAILED), keyed by dotted field path. */
   readonly fieldErrors: FieldErrors;
   readonly path: string | undefined;
+  /** From the Retry-After header on a 429: seconds before the action can be tried again. */
+  readonly retryAfterSeconds: number | undefined;
 
-  constructor(envelope: Pick<ApiError, 'statusCode' | 'message' | 'errorCode'> & Partial<Pick<ApiError, 'errors' | 'path'>>) {
+  constructor(
+    envelope: Pick<ApiError, 'statusCode' | 'message' | 'errorCode'> & Partial<Pick<ApiError, 'errors' | 'path'>>,
+    options: { retryAfterSeconds?: number } = {},
+  ) {
     super(envelope.message);
     this.statusCode = envelope.statusCode;
     this.errorCode = envelope.errorCode;
     this.fieldErrors = toFieldErrors(envelope.errors);
     this.path = envelope.path;
+    this.retryAfterSeconds = options.retryAfterSeconds;
   }
 
   get isUnauthorized(): boolean {
@@ -61,6 +67,22 @@ export function getFieldErrors(error: unknown): FieldErrors {
 
 export function isApiError(error: unknown, errorCode?: ApiErrorCode): error is ApiClientError {
   return error instanceof ApiClientError && (errorCode === undefined || error.errorCode === errorCode);
+}
+
+/** Seconds to wait before retrying, when the API said so (429 with Retry-After). */
+export function getRetryAfterSeconds(error: unknown): number | undefined {
+  return error instanceof ApiClientError ? error.retryAfterSeconds : undefined;
+}
+
+/** Retry-After is either delay-seconds or an HTTP date. */
+export function parseRetryAfter(header: string | null): number | undefined {
+  if (!header) return undefined;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds)) return seconds > 0 ? Math.ceil(seconds) : undefined;
+  const date = Date.parse(header);
+  if (Number.isNaN(date)) return undefined;
+  const wait = Math.ceil((date - Date.now()) / 1000);
+  return wait > 0 ? wait : undefined;
 }
 
 // The envelope's `errors` is a list of { field, messages }. Read it defensively so an
