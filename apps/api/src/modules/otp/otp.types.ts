@@ -2,7 +2,7 @@
 export type OtpIdentifier = { kind: 'email'; value: string } | { kind: 'phone'; value: string };
 
 /** Matches the CHECK on auth.otp_requests.purpose. */
-export type OtpPurpose = 'login' | 'admin_login' | 'email_verification' | 'password_reset';
+export type OtpPurpose = 'login' | 'admin_login' | 'email_verification' | 'password_reset' | 'booking_verification';
 
 /** Matches the message_channel domain. */
 export type OtpChannel = 'email' | 'sms' | 'whatsapp';

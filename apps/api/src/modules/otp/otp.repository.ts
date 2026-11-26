@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { DatabaseService } from '../../database/database.service';
+import { DatabaseService, Queryable } from '../../database/database.service';
 import type { OtpChannel, OtpDeliveryStatus, OtpIdentifier, OtpPurpose } from './otp.types';
 
 /** A rolling window over auth.otp_requests. */
@@ -23,6 +23,37 @@ export interface NewOtpRequest {
   codeHash: string;
   ttlMinutes: number;
   deliveryStatus: OtpDeliveryStatus;
+}
+
+export interface BlocklistRow {
+  id: string;
+  phone_number: string | null;
+  email: string | null;
+  ip_address: string | null;
+  reason: string;
+  created_by_label: string;
+  created_at: Date;
+  expires_at: Date | null;
+}
+
+export interface NewBlock {
+  phoneNumber: string | null;
+  email: string | null;
+  ipAddress: string | null;
+  reason: string;
+  /** auth.staff_users.id; null for automatic blocks. */
+  createdBy: string | null;
+  createdByLabel: string;
+  expiresAt: Date | null;
+}
+
+// host() drops the /32 or /128 suffix, so IPs read as typed.
+const BLOCK_COLUMNS =
+  'id, phone_number, email, host(ip_address) AS ip_address, reason, created_by_label, created_at, expires_at';
+
+/** Display value for a ledger column (fixed names, never input). */
+function valueOf(column: 'phone_number' | 'email' | 'ip_address'): string {
+  return column === 'ip_address' ? 'host(ip_address)' : column;
 }
 
 /** Fixed SQL fragments per identifier kind: column and comparison, never built from input. */
@@ -67,22 +98,80 @@ export class OtpRepository {
   /** The busiest phone numbers, emails or IPs today, for the daily-cap alert. */
   async topToday(column: 'phone_number' | 'email' | 'ip_address', limit: number): Promise<{ value: string; count: number }[]> {
     const { rows } = await this.db.query<{ value: string; count: number }>(
-      `SELECT ${column}::text AS value, count(*)::int AS count FROM auth.otp_requests
+      `SELECT ${valueOf(column)} AS value, count(*)::int AS count FROM auth.otp_requests
        WHERE ${column} IS NOT NULL
          AND created_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
-       GROUP BY ${column} ORDER BY count DESC LIMIT $1`,
+       GROUP BY 1 ORDER BY count DESC LIMIT $1`,
       [limit],
     );
     return rows;
   }
 
-  async create(request: NewOtpRequest): Promise<string> {
+  /** Codes issued in a rolling window, clinic-wide (the security overview). */
+  async countInWindow(windowSeconds: number): Promise<number> {
+    const { rows } = await this.db.query<{ count: number }>(
+      `SELECT count(*)::int AS count FROM auth.otp_requests WHERE created_at >= now() - make_interval(secs => $1)`,
+      [windowSeconds],
+    );
+    return rows[0]?.count ?? 0;
+  }
+
+  /** The busiest phone numbers, emails or IPs in a rolling window (the security overview). */
+  async topInWindow(
+    column: 'phone_number' | 'email' | 'ip_address',
+    windowSeconds: number,
+    limit: number,
+  ): Promise<{ value: string; count: number }[]> {
+    const { rows } = await this.db.query<{ value: string; count: number }>(
+      `SELECT ${valueOf(column)} AS value, count(*)::int AS count FROM auth.otp_requests
+       WHERE ${column} IS NOT NULL AND created_at >= now() - make_interval(secs => $1)
+       GROUP BY 1 ORDER BY count DESC LIMIT $2`,
+      [windowSeconds, limit],
+    );
+    return rows;
+  }
+
+  // ── Blocklist ──────────────────────────────────────────────────────────────────────────
+
+  /** Newest first, expired ones included (so staff can see history). */
+  async listBlocks(limit: number): Promise<BlocklistRow[]> {
+    const { rows } = await this.db.query<BlocklistRow>(
+      `SELECT ${BLOCK_COLUMNS} FROM auth.otp_blocklist ORDER BY created_at DESC LIMIT $1`,
+      [limit],
+    );
+    return rows;
+  }
+
+  async addBlock(block: NewBlock, db: Queryable = this.db): Promise<BlocklistRow> {
+    const { rows } = await db.query<BlocklistRow>(
+      `INSERT INTO auth.otp_blocklist (phone_number, email, ip_address, reason, created_by, created_by_label, expires_at)
+       VALUES ($1, $2, $3::inet, $4, $5, $6, $7)
+       RETURNING ${BLOCK_COLUMNS}`,
+      [block.phoneNumber, block.email, block.ipAddress, block.reason, block.createdBy, block.createdByLabel, block.expiresAt],
+    );
+    const row = rows[0];
+    if (!row) {
+      throw new Error('Blocklist insert returned no row');
+    }
+    return row;
+  }
+
+  /** Returns the removed entry, or undefined if there was none. */
+  async removeBlock(id: string, db: Queryable = this.db): Promise<BlocklistRow | undefined> {
+    const { rows } = await db.query<BlocklistRow>(
+      `DELETE FROM auth.otp_blocklist WHERE id = $1 RETURNING ${BLOCK_COLUMNS}`,
+      [id],
+    );
+    return rows[0];
+  }
+
+  async create(request: NewOtpRequest): Promise<{ id: string; expiresAt: Date }> {
     const column = request.identifier.kind === 'email' ? 'email' : 'phone_number';
-    const { rows } = await this.db.query<{ id: string }>(
+    const { rows } = await this.db.query<{ id: string; expires_at: Date }>(
       `INSERT INTO auth.otp_requests
          (${column}, ip_address, purpose, channel, code_hash, expires_at, delivery_status)
        VALUES ($1, $2::inet, $3, $4, $5, now() + make_interval(mins => $6), $7)
-       RETURNING id`,
+       RETURNING id, expires_at`,
       [
         request.identifier.value,
         request.ipAddress,
@@ -93,11 +182,11 @@ export class OtpRepository {
         request.deliveryStatus,
       ],
     );
-    const id = rows[0]?.id;
-    if (!id) {
+    const row = rows[0];
+    if (!row) {
       throw new Error('OTP request insert returned no id');
     }
-    return id;
+    return { id: row.id, expiresAt: row.expires_at };
   }
 
   /** Still-pending codes for this identifier and purpose, newest first (expired ones included). */

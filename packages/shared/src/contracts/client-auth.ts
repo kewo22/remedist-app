@@ -29,7 +29,10 @@ export const CLIENT_AUTH_ROUTES = {
 } as const;
 
 export const PASSWORD_RESET_CHANNELS = ['email', 'phone'] as const;
-/** 'phone' is accepted but refused with CHANNEL_UNAVAILABLE until WhatsApp/SMS sending is built. */
+/**
+ * 'phone' sends the code by WhatsApp (or SMS) to the phone on the client's contact record, which
+ * exists once Part 1 registration is done. Without one, the answer is the same but nothing is sent.
+ */
 export type PasswordResetChannel = (typeof PASSWORD_RESET_CHANNELS)[number];
 
 export type ClientAuthProvider = 'email' | 'google';
