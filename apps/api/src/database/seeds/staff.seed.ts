@@ -1,11 +1,9 @@
 import { Role } from '@remedist/shared';
 import { hash } from 'bcryptjs';
+import { BCRYPT_COST } from '../../common/auth/auth.constants';
 import type { SeedConfig, SeedPasswordEnv } from '../../config/seed-config';
 import type { Queryable } from '../database.service';
 import type { SeedReport } from './seed-report';
-
-/** Same cost as the old app, so its existing hashes and new ones verify the same way. */
-export const BCRYPT_COST = 10;
 
 interface StaffLoginSeed {
   name: string;

@@ -27,7 +27,8 @@ async function bootstrap(): Promise<void> {
 
   // /health stays outside the versioned prefix so Railway can probe it directly.
   app.setGlobalPrefix(API_PREFIX, { exclude: ['health'] });
-  app.enableCors({ origin: config.webUrl, credentials: true });
+  // Retry-After (on 429s) isn't a CORS-safelisted header: without exposing it, the web app can't read it.
+  app.enableCors({ origin: config.webUrl, credentials: true, exposedHeaders: ['Retry-After', 'X-Request-Id'] });
   app.enableShutdownHooks();
 
   await app.listen(config.port);

@@ -1,24 +1,40 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { AuditModule } from './common/audit/audit-log.repository';
-import { AdminRoutePolicyGuard } from './common/auth/admin-route-policy.guard';
+import { AuthCoreModule } from './common/auth/auth-core.module';
+import { RoutePolicyGuard } from './common/auth/route-policy.guard';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { createGlobalValidationPipe } from './common/validation/global-validation.pipe';
 import { ConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
+import { IntegrationsModule } from './integrations/integrations.module';
+import { ClientAuthModule } from './modules/client-auth/client-auth.module';
+import { ContactsModule } from './modules/contacts/contacts.repository';
 import { HealthModule } from './modules/health/health.module';
+import { NotificationsModule } from './modules/notifications/notifications.service';
 import { StaffAuthModule } from './modules/staff-auth/staff-auth.module';
 
 @Module({
-  imports: [ConfigModule, DatabaseModule, AuditModule, StaffAuthModule, HealthModule],
+  imports: [
+    ConfigModule,
+    DatabaseModule,
+    AuditModule,
+    IntegrationsModule,
+    NotificationsModule,
+    ContactsModule,
+    AuthCoreModule,
+    StaffAuthModule,
+    ClientAuthModule,
+    HealthModule,
+  ],
   providers: [
     // Registered here rather than in main.ts so they can use dependency injection.
     { provide: APP_PIPE, useFactory: createGlobalValidationPipe },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
-    // Every admin/... route must declare @StaffOnly, @StaffSignedIn or @PublicRoute.
-    { provide: APP_GUARD, useClass: AdminRoutePolicyGuard },
+    // Every admin/... and portal/... route must declare who may call it.
+    { provide: APP_GUARD, useClass: RoutePolicyGuard },
   ],
 })
 export class AppModule {}

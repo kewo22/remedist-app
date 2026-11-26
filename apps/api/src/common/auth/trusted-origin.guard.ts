@@ -1,6 +1,6 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
-import { PermissionDeniedException } from '../../common/auth/permissions.guard';
+import { PermissionDeniedException } from './permissions.guard';
 import { AppConfig } from '../../config/app-config';
 
 /**
