@@ -80,6 +80,8 @@ export function toAdminSlot(row: AdminSlotRow): AdminSlot {
     sessionTypeId: row.session_type_id,
     sessionTypeName: row.session_type_name,
     blockReason: row.block_reason,
+    blockedByCalendar: row.blocked_by_google_event_id !== null,
+    calendarPending: row.calendar_sync_pending,
     flaggedForReview: row.flagged_for_review,
     flagReason: row.flag_reason,
     booking,

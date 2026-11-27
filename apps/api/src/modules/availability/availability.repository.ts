@@ -36,6 +36,10 @@ export interface SlotRow {
   source: SlotSource;
   flagged_for_review: boolean;
   flag_reason: string | null;
+  /** The private Google event blocking it, if any. */
+  blocked_by_google_event_id: string | null;
+  /** Its Google Calendar event hasn't caught up with a change yet. */
+  calendar_sync_pending: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -95,7 +99,7 @@ const SESSION_TYPE_COLUMNS = `id, name, duration_minutes, rate_lkr_minor::text, 
 
 const SLOT_COLUMNS = `s.id, s.practitioner_id, s.slot_start, s.slot_end, s.status, s.rate_lkr_minor::text AS rate_lkr_minor,
   s.rate_usd_minor::text AS rate_usd_minor, s.session_type_id, s.block_reason, s.source, s.flagged_for_review,
-  s.flag_reason, s.created_at, s.updated_at`;
+  s.flag_reason, s.blocked_by_google_event_id, s.calendar_sync_pending, s.created_at, s.updated_at`;
 
 const ADMIN_SLOT_SELECT = `
   SELECT ${SLOT_COLUMNS}, p.display_name AS practitioner_name, st.name AS session_type_name,
@@ -244,8 +248,9 @@ export class AvailabilityRepository {
   async insertSlot(slot: NewSlot, tx: Queryable): Promise<SlotRow> {
     const { rows } = await tx.query<SlotRow>(
       `INSERT INTO availability_slots AS s
-         (practitioner_id, slot_start, slot_end, status, rate_lkr_minor, rate_usd_minor, session_type_id, source, created_by)
-       VALUES ($1, $2, $3, 'open', $4, $5, $6, 'manual', $7)
+         (practitioner_id, slot_start, slot_end, status, rate_lkr_minor, rate_usd_minor, session_type_id, source, created_by,
+          calendar_sync_pending)
+       VALUES ($1, $2, $3, 'open', $4, $5, $6, 'manual', $7, true)
        RETURNING ${SLOT_COLUMNS}`,
       [slot.practitionerId, slot.start, slot.end, slot.rateLkrMinor, slot.rateUsdMinor, slot.sessionTypeId, slot.createdBy],
     );
@@ -255,17 +260,23 @@ export class AvailabilityRepository {
   async updateSlot(id: string, changes: SlotChanges, tx: Queryable): Promise<SlotRow> {
     const { rows } = await tx.query<SlotRow>(
       `UPDATE availability_slots AS s
-       SET slot_start = $2, slot_end = $3, rate_lkr_minor = $4, rate_usd_minor = $5, session_type_id = $6
+       SET slot_start = $2, slot_end = $3, rate_lkr_minor = $4, rate_usd_minor = $5, session_type_id = $6,
+           calendar_sync_pending = true
        WHERE s.id = $1 RETURNING ${SLOT_COLUMNS}`,
       [id, changes.start, changes.end, changes.rateLkrMinor, changes.rateUsdMinor, changes.sessionTypeId],
     );
     return this.required(rows[0]);
   }
 
-  /** Changes the status (and block reason). The caller has checked the current status under the lock. */
+  /**
+   * Changes the status (and block reason). The caller has checked the current status under the lock.
+   * A staff change replaces any block by a Google event, and marks the calendar event for an update.
+   */
   async setSlotStatus(id: string, status: SlotStatus, blockReason: string | null, tx: Queryable): Promise<SlotRow> {
     const { rows } = await tx.query<SlotRow>(
-      `UPDATE availability_slots AS s SET status = $2, block_reason = $3 WHERE s.id = $1 RETURNING ${SLOT_COLUMNS}`,
+      `UPDATE availability_slots AS s
+       SET status = $2, block_reason = $3, blocked_by_google_event_id = NULL, calendar_sync_pending = true
+       WHERE s.id = $1 RETURNING ${SLOT_COLUMNS}`,
       [id, status, blockReason],
     );
     return this.required(rows[0]);
