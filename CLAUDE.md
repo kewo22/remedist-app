@@ -230,7 +230,35 @@ modules/bookings/
   - **Overlaps:** the `availability_slots_no_overlap` constraint rejects them per practitioner (`isExclusionViolation` → `SLOT_OVERLAP`). Two practitioners may work at the same time.
 - **History:** every change is in `audit_log` (entity `availability_slot`, actions `slot.*`), with a `SlotSnapshot` before and after. `GET /admin/availability/history` reads it. Booking and calendar sync should write their slot changes the same way.
 - **Public list:** open slots of active practitioners on one clinic-local day, without those inside `PUBLIC_BOOKING_CUTOFF_HOURS`. It carries both prices; the web picks one with `rateForResidency`. `GET /public/availability/dates` lists the days with a bookable slot.
-- **Google Calendar** (event per slot, sync, conflict flags) is the next task. `acknowledge-flag` already clears a flag.
+- **Google Calendar:** every slot change sets `calendar_sync_pending` in its own transaction, then calls `CalendarEventsService.pushAfterChange(slotId)` after committing. Booking must do the same.
+
+### Google Calendar
+`modules/calendar`; routes in `ADMIN_CALENDAR_ROUTES`. The status needs `schedule.manage`; connect, disconnect and "sync now" need `settings.manage` (owners).
+- **One clinic calendar:** it's connected by an owner through an OAuth popup. Every practitioner's slots get events there, and its private events block every practitioner's slots.
+  - Tokens are AES-256-GCM encrypted (`TokenCipher`, `TOKEN_ENCRYPTION_KEY`) in `auth.google_oauth_tokens`.
+  - Access tokens are refreshed a minute before they expire. A revoked grant shows on the status as "connect again".
+  - The scope is `calendar.events` only.
+  - There's no service-account fallback.
+- **Connect flow:**
+  - `POST connect` returns Google's consent URL, carrying a one-time `state` from `OAuthStateStore` (in memory, 10 minutes).
+  - Google redirects the popup to `/admin/calendar/oauth/callback` (`@PublicRoute`, raw HTML). That page posts a `CalendarOAuthMessage` to `WEB_URL` and closes.
+  - Connecting replaces any earlier connection, starts a full sync and marks every upcoming slot pending, so each gets its event. Disconnecting revokes the grant and leaves events in Google.
+- **One event per slot:**
+  - The event is created on the first push and patched in place afterwards. It's re-created only if Google lost it (404/410), and deleted with the slot (its id is kept, so the echo is recognised).
+  - Events carry the private property `remedistSlotId`, so the sync never mistakes one of ours for a private event.
+  - Open slots show as free.
+- **Pending updates:** `calendar_sync_pending` is cleared only after the event matches; the push holds the slot's row lock meanwhile. A Google failure never blocks scheduling: the slot stays pending and the job retries it.
+- **Sync back from Google** (`CalendarSyncService`, incremental with a sync token, full resync on 410):
+  - A slot's own event, moved or deleted in Google, moves or deletes an open or blocked slot. A move onto another slot, or a change to all-day, is recorded as `slot.sync_conflict` and not applied.
+  - A booked slot is never changed. The change sets `flagged_for_review` with a critical `calendar_conflict` notification, once per reason.
+  - A pending slot is skipped: the app's version wins, and the push puts the event back.
+  - Any other event that shows as **busy** blocks the open, not-yet-ended slots it overlaps (`blocked_by_google_event_id`, reason = its title). It unblocks them when the event moves away or is cancelled.
+  - Events marked **free** (working location, birthdays, "free" events) never block.
+  - A staff unblock or block replaces the Google link; a later full resync can block the slot again while the event still covers it.
+  - Changes are in `audit_log` as `Google Calendar sync` (`slot.synced_from_google`, `slot.sync_conflict`, `slot.blocked`, `slot.unblocked`).
+- **The two old sync bugs are fixed** in `eventRange`: times are compared as instants, and all-day events (`start.date`) cover whole clinic days, with the end date exclusive.
+- **The job** (`CalendarSyncJob`, `AVAILABILITY_SYNC_CRON`, default every 5 minutes) runs push pending → read changes → push pending, under `pg_try_advisory_lock` on the direct connection. "Sync now" runs the same thing (`CALENDAR_SYNC_BUSY` if it's already running).
+- **Demo mode** (no `GOOGLE_OAUTH_CLIENT_SECRET`): outside production, "Connect" links an in-memory demo calendar, which forgets its events on restart. In production connecting is refused (`CALENDAR_NOT_CONFIGURED`).
 
 ### Database
 - Only repositories run SQL, and every query is parameterised.
@@ -349,9 +377,9 @@ Short reminders only. The full detail is in the old repo's `CLAUDE.md`.
 
 - **Slots:** `availability_slots` is the only source of what's bookable. Claiming a slot is an atomic conditional update (`WHERE status = 'open'`, check one row changed). The unique index on active bookings is only a backstop.
 - **Calendar:** one Google Calendar event per slot for its whole life, patched in place and never re-inserted. A `booked` slot is never changed by inbound sync; a conflict sets `flagged_for_review` for staff instead.
-- **Known calendar bugs to fix while porting:**
-  - Start times were compared as strings, which flagged every booked slot as a false conflict.
-  - All-day events were ignored.
+- **Known calendar bugs, fixed in `modules/calendar`** (keep them fixed):
+  - Start times were compared as strings, which flagged every booked slot as a false conflict. They're now compared as instants.
+  - All-day events were ignored. Busy all-day events now block their whole clinic days.
 - **Price:** the currency comes from **nationality** (`contacts.nationality = 'LK'` pays LKR, everyone else pays USD) through one function, `rateForResidency`. A slot priced in only one currency charges that price to everyone. Before login there's no nationality, so the booking page shows the base price with a note.
 - **Session types:** a slot copies its session type's duration and prices when it's created and never reads them back later.
 - **Notes:** `bookings.staff_notes` is separate from `bookings.notes`, which is the client's own text. Never overwrite the client's notes.
@@ -412,7 +440,10 @@ Each app has its own `.env` and `.env.example`. The main ones:
 - `ADMIN_JWT_SECRET` (staff access tokens) and `JWT_SECRET` (client access tokens): both required, 32+ random characters, and different from each other. The migrate and seed commands load the same config, so they need them too.
 - `PAYHERE_MERCHANT_ID`, `PAYHERE_MERCHANT_SECRET`, `PAYHERE_MODE`
 - `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`, `TWILIO_SMS_FROM` (WhatsApp first, then SMS; at least one sender), `RESEND_API_KEY`, `EMAIL_FROM` (a Resend-verified domain), `ADMIN_ALERT_EMAILS` (security alerts, comma-separated)
-- `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`
+- `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` (sign-in and Calendar share the client).
+  - With the secret, `TOKEN_ENCRYPTION_KEY` (32 random bytes, base64) is required.
+  - `GOOGLE_CALENDAR_ID` defaults to `primary`.
+  - The client needs the redirect URI `<APP_URL>/api/v1/admin/calendar/oauth/callback`.
 - `ANTHROPIC_API_KEY`, `ASK_REMEDIST_MODEL`
 - `TURNSTILE_SECRET_KEY`, `SENTRY_DSN`
 - `STORAGE_BUCKET` (`remedist-object-storage-dev` locally), plus Neon's `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, which `neon env pull` fills for the checked-out branch. With the endpoint or a key set, all five are required.
