@@ -11,7 +11,7 @@ import { ConfigModule } from '../../config/config.module';
 import { loadSeedConfig } from '../../config/seed-config';
 import { DatabaseModule } from '../database.module';
 import { DatabaseService } from '../database.service';
-import { seedAilments, seedDefaultSessionType, seedFaqs } from '../seeds/content.seed';
+import { seedAilments, seedDefaultSessionType, seedFaqs, seedTermsDraft } from '../seeds/content.seed';
 import { syncRolesAndPermissions } from '../seeds/roles.seed';
 import { SeedReport } from '../seeds/seed-report';
 import { seedStaffLogins } from '../seeds/staff.seed';
@@ -42,6 +42,7 @@ async function main(): Promise<void> {
       await seedDefaultSessionType(tx, report);
       await seedFaqs(tx, report);
       await seedAilments(tx, report);
+      await seedTermsDraft(tx, report);
     });
 
     logger.log(

@@ -6,5 +6,7 @@ export * from './client-account';
 export * from './clinic-time';
 export * from './contact';
 export * from './date-time';
+export * from './intake';
 export * from './phone';
 export * from './pricing';
+export * from './terms';

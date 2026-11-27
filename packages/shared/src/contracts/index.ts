@@ -6,6 +6,8 @@ export * from './availability';
 export * from './client-auth';
 export * from './contacts';
 export * from './health';
+export * from './intake';
 export * from './phone-otp';
 export * from './security';
 export * from './staff-auth';
+export * from './terms';
