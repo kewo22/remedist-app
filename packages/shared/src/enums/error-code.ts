@@ -56,6 +56,18 @@ export const ErrorCode = {
   EMAIL_IN_USE: 'EMAIL_IN_USE',
   /** The client signs in with this email, so staff can't change it from the CRM. */
   CONTACT_EMAIL_LOCKED: 'CONTACT_EMAIL_LOCKED',
+
+  // Intake and terms
+  /** Part 1 registration is already complete for this profile. */
+  PART1_ALREADY_COMPLETED: 'PART1_ALREADY_COMPLETED',
+  /** No Terms & Conditions have been published yet. */
+  TERMS_NOT_PUBLISHED: 'TERMS_NOT_PUBLISHED',
+  /** The terms version the client accepted isn't the current one: reload the terms and accept again. */
+  TERMS_VERSION_OUTDATED: 'TERMS_VERSION_OUTDATED',
+  /** Both sections of the terms draft need content before it can be published. */
+  TERMS_INCOMPLETE: 'TERMS_INCOMPLETE',
+  /** The uploaded file isn't a JPEG, PNG or WebP image. */
+  INVALID_PHOTO: 'INVALID_PHOTO',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

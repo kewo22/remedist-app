@@ -6,6 +6,7 @@ import {
   LogLevelName,
   NodeEnv,
   REQUIRED_IN_PRODUCTION,
+  STORAGE_VARIABLES,
 } from './env.validation';
 
 /**
@@ -54,6 +55,14 @@ export abstract class AppConfig {
     /** Unset means every challenge passes (demo mode). */
     readonly secretKey?: string;
   };
+  /** Unset means demo mode: files are kept in a local folder, and refused in production. */
+  abstract readonly storage?: {
+    readonly bucket: string;
+    readonly endpoint: string;
+    readonly region: string;
+    readonly accessKeyId: string;
+    readonly secretAccessKey: string;
+  };
   abstract readonly otp: {
     readonly dailySendCap: number;
     readonly codeTtlMinutes: number;
@@ -86,6 +95,13 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   // Separate secrets, so a client token can never pass the staff guard even if a check is missed.
   if (vars.JWT_SECRET !== undefined && vars.JWT_SECRET === vars.ADMIN_JWT_SECRET) {
     problems.push('JWT_SECRET must be different from ADMIN_JWT_SECRET');
+  }
+
+  // The bucket name alone (as in .env.example) is fine; any credential or endpoint needs the rest.
+  const storageStarted = STORAGE_VARIABLES.some((key) => key !== 'STORAGE_BUCKET' && key in present);
+  const storageMissing = STORAGE_VARIABLES.filter((key) => !(key in present));
+  if (storageStarted && storageMissing.length > 0) {
+    problems.push(`Object storage needs all of ${STORAGE_VARIABLES.join(', ')}; missing ${storageMissing.join(', ')}`);
   }
 
   if (vars.NODE_ENV === 'production') {
@@ -125,6 +141,16 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     google: { oauthClientId: vars.GOOGLE_OAUTH_CLIENT_ID },
     turnstile: { secretKey: vars.TURNSTILE_SECRET_KEY },
+    storage:
+      vars.STORAGE_BUCKET && vars.AWS_ENDPOINT_URL_S3 && vars.AWS_REGION && vars.AWS_ACCESS_KEY_ID && vars.AWS_SECRET_ACCESS_KEY
+        ? {
+            bucket: vars.STORAGE_BUCKET,
+            endpoint: vars.AWS_ENDPOINT_URL_S3,
+            region: vars.AWS_REGION,
+            accessKeyId: vars.AWS_ACCESS_KEY_ID,
+            secretAccessKey: vars.AWS_SECRET_ACCESS_KEY,
+          }
+        : undefined,
     otp: { dailySendCap: vars.DAILY_OTP_SEND_CAP, codeTtlMinutes: vars.OTP_CODE_TTL_MINUTES },
   };
 }

@@ -115,6 +115,27 @@ export interface ContactUpdate {
   reminder_frequency_days?: number;
 }
 
+/** Everything Part 1 writes. Undefined `email` or `phone` keeps the value on file. */
+export interface Part1Fields {
+  name: string;
+  gender: ContactGender;
+  nationality: string;
+  residency: 'lk' | 'intl';
+  id_type: IdType | null;
+  id_number: string | null;
+  date_of_birth: string;
+  email?: string | null;
+  phone?: string | null;
+  profession: string | null;
+  address: string | null;
+  backup_contact_name: string | null;
+  backup_contact_relation: string | null;
+  backup_contact_phone: string | null;
+  referral_text: string | null;
+  /** Null only when no terms have been published yet. */
+  terms_accepted_version: number | null;
+}
+
 const UPDATABLE_COLUMNS: ReadonlySet<string> = new Set<keyof ContactUpdate>([
   'name',
   'email',
@@ -293,6 +314,66 @@ export class ContactsRepository {
       [contactId, registrationNumber],
     );
     return rows[0]?.registration_number ?? null;
+  }
+
+  // ── Part 1 registration and consent ───────────────────────────────────────────────────
+
+  /**
+   * Writes Part 1 and marks it complete, recording consent (timestamped, with the version shown, if
+   * any was published). Only while Part 1 is incomplete: false if it was already done. `email` and
+   * `phone` left undefined keep their value.
+   */
+  async completePart1(id: string, fields: Part1Fields, tx: Queryable): Promise<boolean> {
+    const result = await tx.query(
+      `UPDATE contacts SET
+         name = $2, gender = $3, nationality = $4, residency = $5, id_type = $6, id_number = $7,
+         date_of_birth = $8,
+         email = CASE WHEN $9 THEN $10 ELSE email END,
+         phone = CASE WHEN $11 THEN $12 ELSE phone END,
+         profession = $13, address = $14, backup_contact_name = $15, backup_contact_relation = $16,
+         backup_contact_phone = $17, referral_text = $18,
+         terms_accepted_at = now(), terms_accepted_version = $19, part1_completed_at = now()
+       WHERE id = $1 AND part1_completed_at IS NULL`,
+      [
+        id,
+        fields.name,
+        fields.gender,
+        fields.nationality,
+        fields.residency,
+        fields.id_type,
+        fields.id_number,
+        fields.date_of_birth,
+        fields.email !== undefined,
+        fields.email ?? null,
+        fields.phone !== undefined,
+        fields.phone ?? null,
+        fields.profession,
+        fields.address,
+        fields.backup_contact_name,
+        fields.backup_contact_relation,
+        fields.backup_contact_phone,
+        fields.referral_text,
+        fields.terms_accepted_version,
+      ],
+    );
+    return result.rowCount === 1;
+  }
+
+  /** Records acceptance of a published terms version, now. */
+  async setTermsAccepted(id: string, version: number, tx: Queryable): Promise<void> {
+    await tx.query('UPDATE contacts SET terms_accepted_at = now(), terms_accepted_version = $2 WHERE id = $1', [id, version]);
+  }
+
+  /** The most common nationalities on file, most common first (ties alphabetically). */
+  async topNationalities(limit: number): Promise<string[]> {
+    const { rows } = await this.db.query<{ nationality: string }>(
+      `SELECT nationality FROM contacts
+       WHERE nationality IS NOT NULL AND archived_at IS NULL
+       GROUP BY nationality ORDER BY count(*) DESC, nationality
+       LIMIT $1`,
+      [limit],
+    );
+    return rows.map((row) => row.nationality);
   }
 
   // ── Portal: own contact and dependents ────────────────────────────────────────────────

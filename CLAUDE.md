@@ -37,7 +37,7 @@ The API and the web app are built **at the same time, in separate Git worktrees*
 | Jobs | `@nestjs/schedule` + Postgres advisory locks |
 | Docs and monitoring | Swagger, Sentry, `/health` |
 | Hosting | Railway (API and web as separate services) |
-| Integrations | PayHere, Twilio (WhatsApp/SMS), Resend, Google Calendar + Google sign-in, Anthropic Claude, Cloudflare Turnstile |
+| Integrations | PayHere, Twilio (WhatsApp/SMS), Resend, Google Calendar + Google sign-in, Anthropic Claude, Cloudflare Turnstile, Neon Object Storage (S3 API via `@aws-sdk/client-s3`) |
 
 ## Commands
 
@@ -185,6 +185,34 @@ modules/bookings/
 - **Registration numbers** (`REM-0001`...): `RegistrationNumberService.assign(contactId, tx)`, called inside Part 1's transaction. It's idempotent, and the sequence lives in `sequence_counters`.
 - **Search** (`GET /admin/clients?q=`) matches name, email, registration number and ID number (contains, any case), and the phone by its digits. LIKE wildcards in `q` are matched literally. Archived contacts are left out unless `includeArchived=true`.
 
+### Intake and terms
+`modules/intake` (`PUBLIC_INTAKE_ROUTES`, `PORTAL_INTAKE_ROUTES`, `ADMIN_INTAKE_ROUTES`) and `modules/terms` (`PUBLIC_TERMS_ROUTES`, `PORTAL_TERMS_ROUTES`, `ADMIN_TERMS_ROUTES`).
+- **Part 1** (`POST /portal/intake/part1`): once per contact, for the account holder or a dependent (`requireOwned`); a second try gets 409 `PART1_ALREADY_COMPLETED`.
+  - One transaction locks the identity fields, sets residency from nationality, records consent and assigns the registration number.
+  - The NIC/passport is required for the account holder and optional for dependents; type and number go together. A duplicate gets 409 `DUPLICATE_ID_NUMBER`.
+  - The account holder's email is their login and can't change here. A dependent may get their own email (`EMAIL_IN_USE` if taken).
+  - A new phone needs a `phone_change` proof, spent in the transaction, as on the profile.
+- **Consent:** both checkboxes must be ticked, and the request carries the `termsVersion` the client was shown. It must be the latest published one (null only before the first publish), or 409 `TERMS_VERSION_OUTDATED`.
+  - `POST /portal/terms/accept` is the re-consent for a returning client; it never touches Part 1.
+  - Booking and walk-in check `TermsService.acceptanceRequired(contact)` (rule: `termsAcceptanceRequired`).
+- **Terms versions:** one draft (the seed loads the old starter text). Publishing freezes it as the next version and starts a new draft from the same text, and two publishes at once get one 409.
+  - Editing the draft needs `content.manage`; publishing also needs `settings.manage` (owners), because it makes every client accept again. Nobody is notified.
+- **Part 2** (`clinical.intake_forms`): one form per visit. Booking and pro-bono create it in their own transaction with `IntakeFormsService.createForBooking` / `createForProbonoEntry`, and `attachProbonoFormToBooking` moves a pro-bono form to its booking.
+  - The questions are versioned in `packages/shared/rules/intake.ts` (`INTAKE_FORM_VERSION`). A new or changed question is a new version, not a migration.
+  - Every question is answered `yes`, `no` or `unknown`. Follow-up text is kept only for a "yes", and the incident follow-up has a 10-word limit.
+  - Pain points are up to 3 `anatomy_segments` ids, ranked 1–3, each once.
+  - Submitting completes the form, and later edits keep the first completion's time and channel. A pending pro-bono entry moves to `waitlisted`.
+  - The prefill comes from the last completed form on the current version. Photos are never prefilled.
+  - Answers never go in logs or `audit_log`; the audit entry has only the channel.
+- **Posture photos:** JPEG, PNG or WebP (checked by their first bytes), up to 8 MB, one per side. Stored through `FileStorage` under `intake-photos/<intakeId>/`.
+  - A new photo replaces the side's `clinical.attachments` row; the old file stays in storage.
+  - Staff fetch the image through the API, never from a public URL.
+- **In the CRM:** viewing needs `clinical.read` (owners, doctors), and entering the on-site paper form needs `clinical.write` (doctors). Every list, view, prefill, photo and write goes to `clinical.access_log` through `ClinicalAccessLogRepository`.
+- **Not built yet:**
+  - the 72-hour reminder and the `missed_deadline_onsite` job;
+  - the walk-in kiosk's `walk_in_tablet` submissions;
+  - the pre-session document.
+
 ### Database
 - Only repositories run SQL, and every query is parameterised.
 - Use a transaction for any multi-step write.
@@ -236,6 +264,9 @@ modules/bookings/
   - A demo must never weaken production. For example, demo Google sign-in refuses every token in production.
   - Calls to providers use `fetch` with a timeout, and never log message bodies (they can hold codes).
 - Webhooks verify signatures (PayHere MD5, Twilio) before trusting anything.
+- **File storage** (`FileStorage`) is Neon Object Storage through its S3-compatible API (`@aws-sdk/client-s3`, path-style). Buckets are private and per Neon branch: a child branch sees its parent's files, but its writes stay on the child.
+  - Keys are generated by the API, never taken from a request.
+  - Without storage settings, the demo keeps files in a temp folder, and refuses uploads in production.
 
 ### Background jobs
 - One job class per job, each using `@nestjs/schedule`.
@@ -365,6 +396,7 @@ Each app has its own `.env` and `.env.example`. The main ones:
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`
 - `ANTHROPIC_API_KEY`, `ASK_REMEDIST_MODEL`
 - `TURNSTILE_SECRET_KEY`, `SENTRY_DSN`
+- `STORAGE_BUCKET` (`remedist-object-storage-dev` locally), plus Neon's `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, which `neon env pull` fills for the checked-out branch. With the endpoint or a key set, all five are required.
 - `DAILY_OTP_SEND_CAP`, `OTP_CODE_TTL_MINUTES`, `ASSISTANT_SESSION_MESSAGE_CAP`, `AVAILABILITY_SYNC_CRON`
 
 **Web (`apps/web/.env.local`)**

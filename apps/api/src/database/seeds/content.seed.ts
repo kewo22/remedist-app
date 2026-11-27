@@ -103,7 +103,7 @@ const AILMENTS: ReadonlyArray<{ name: string; description: string; averageSessio
   },
 ];
 
-async function isEmpty(db: Queryable, table: 'session_types' | 'faq_entries' | 'ailments'): Promise<boolean> {
+async function isEmpty(db: Queryable, table: 'session_types' | 'faq_entries' | 'ailments' | 'terms_versions'): Promise<boolean> {
   // Table name comes from the fixed union above, never from input.
   const { rowCount } = await db.query(`SELECT 1 FROM ${table} LIMIT 1`);
   return rowCount === 0;
@@ -154,4 +154,34 @@ export async function seedAilments(db: Queryable, report: SeedReport): Promise<v
     ],
   );
   report.created('ailments', `${AILMENTS.length} entries, no anatomy segments assigned`);
+}
+
+/**
+ * The old app's starter general terms (its terms.service.js), as the first draft. The refund
+ * policy section starts empty: the owner writes it before the first publish.
+ */
+const STARTER_GENERAL_TERMS = `AI Assistant
+The Remedist provides an AI-powered chat assistant on our website to answer general questions about our services, treatment approach, and frequently asked questions, including information about pro-bono and reduced-fee options.
+
+The AI Assistant does not diagnose conditions, assess symptoms, or provide medical advice of any kind. Where it recommends you consult Rauzan Aly directly or seek independent medical advice, that recommendation should be followed rather than treated as optional.
+
+Responses are generated automatically and, while drawn from information maintained by The Remedist, may occasionally be incomplete, outdated, or inaccurate. They do not constitute a binding quote, guarantee, medical opinion, or formal advice from The Remedist or Rauzan Aly.
+
+Conversations with the AI Assistant are not stored or retained by The Remedist, except where you choose to rate a response. If you rate a response while not logged in, that rating is stored without identifying you. If you rate a response while logged in, that rating is stored together with your Client Registration Number for internal review. You are welcome to use the AI Assistant while logged out if you prefer ratings not to be linked to your account.
+
+The AI Assistant currently operates in English only, does not provide pricing information, and is provided as a convenience feature that The Remedist may modify, restrict, suspend, or discontinue at any time.
+
+Internal tools
+We may use AI tools internally to help manage records, generate summaries, and support clinic operations.`;
+
+export async function seedTermsDraft(db: Queryable, report: SeedReport): Promise<void> {
+  if (!(await isEmpty(db, 'terms_versions'))) {
+    report.skipped('terms draft', 'terms already exist');
+    return;
+  }
+  await db.query(
+    `INSERT INTO terms_versions (status, general_terms_content, refund_policy_content) VALUES ('draft', $1, '')`,
+    [STARTER_GENERAL_TERMS],
+  );
+  report.created('terms draft', 'starter general terms, refund policy to write');
 }

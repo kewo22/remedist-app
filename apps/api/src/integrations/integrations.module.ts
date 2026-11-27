@@ -3,6 +3,7 @@ import { AppConfig } from '../config/app-config';
 import { EmailProvider, createEmailProvider } from './email/email.provider';
 import { GoogleIdentityVerifier, createGoogleIdentityVerifier } from './google/google-identity.verifier';
 import { PhoneMessenger, createPhoneMessenger } from './messaging/phone-messenger';
+import { FileStorage, createFileStorage } from './storage/file-storage';
 import { TurnstileVerifier, createTurnstileVerifier } from './turnstile/turnstile.verifier';
 
 /**
@@ -16,7 +17,8 @@ import { TurnstileVerifier, createTurnstileVerifier } from './turnstile/turnstil
     { provide: TurnstileVerifier, inject: [AppConfig], useFactory: createTurnstileVerifier },
     { provide: GoogleIdentityVerifier, inject: [AppConfig], useFactory: createGoogleIdentityVerifier },
     { provide: PhoneMessenger, inject: [AppConfig], useFactory: createPhoneMessenger },
+    { provide: FileStorage, inject: [AppConfig], useFactory: createFileStorage },
   ],
-  exports: [EmailProvider, TurnstileVerifier, GoogleIdentityVerifier, PhoneMessenger],
+  exports: [EmailProvider, TurnstileVerifier, GoogleIdentityVerifier, PhoneMessenger, FileStorage],
 })
 export class IntegrationsModule {}
