@@ -18,6 +18,7 @@ export type Role = (typeof Role)[keyof typeof Role];
 
 export const Permission = {
   PATIENTS_MANAGE: 'patients.manage', // view and edit patient details
+  PATIENTS_CORRECT_IDENTITY: 'patients.correct_identity', // correct locked Part 1 fields (name, ID, date of birth...)
   CLINICAL_READ: 'clinical.read',
   CLINICAL_WRITE: 'clinical.write', // write and sign clinical records
   SCHEDULE_MANAGE: 'schedule.manage', // availability and bookings
@@ -44,6 +45,7 @@ export const ROLE_DEFINITIONS: Readonly<Record<Role, RoleDefinition>> = {
     description: 'System role for the developer. Clinical record access is logged.',
     permissions: [
       P.PATIENTS_MANAGE,
+      P.PATIENTS_CORRECT_IDENTITY,
       P.CLINICAL_READ,
       P.SCHEDULE_MANAGE,
       P.BILLING_MANAGE,
@@ -59,6 +61,7 @@ export const ROLE_DEFINITIONS: Readonly<Record<Role, RoleDefinition>> = {
     description: 'Runs the clinic. Cannot grant super_admin or remove the last owner.',
     permissions: [
       P.PATIENTS_MANAGE,
+      P.PATIENTS_CORRECT_IDENTITY,
       P.CLINICAL_READ,
       P.SCHEDULE_MANAGE,
       P.BILLING_MANAGE,

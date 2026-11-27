@@ -46,6 +46,16 @@ export const ErrorCode = {
   PHONE_ACCOUNT_NOT_FOUND: 'PHONE_ACCOUNT_NOT_FOUND',
   /** More than one portal account has this phone (for example family members): sign in by email. */
   PHONE_ACCOUNT_AMBIGUOUS: 'PHONE_ACCOUNT_AMBIGUOUS',
+
+  // Contacts
+  /** The profile can't be edited until Part 1 registration is complete. */
+  PART1_INCOMPLETE: 'PART1_INCOMPLETE',
+  /** That NIC or passport number is already registered to another client. */
+  DUPLICATE_ID_NUMBER: 'DUPLICATE_ID_NUMBER',
+  /** Another contact already has that email. */
+  EMAIL_IN_USE: 'EMAIL_IN_USE',
+  /** The client signs in with this email, so staff can't change it from the CRM. */
+  CONTACT_EMAIL_LOCKED: 'CONTACT_EMAIL_LOCKED',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
