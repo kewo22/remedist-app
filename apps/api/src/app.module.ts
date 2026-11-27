@@ -10,7 +10,7 @@ import { ConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { ClientAuthModule } from './modules/client-auth/client-auth.module';
-import { ContactsModule } from './modules/contacts/contacts.repository';
+import { ContactsModule } from './modules/contacts/contacts.module';
 import { HealthModule } from './modules/health/health.module';
 import { NotificationsModule } from './modules/notifications/notifications.service';
 import { OtpModule } from './modules/otp/otp.module';
