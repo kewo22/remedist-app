@@ -3,6 +3,7 @@
 
 export * from './api-response';
 export * from './availability';
+export * from './calendar';
 export * from './client-auth';
 export * from './contacts';
 export * from './health';
