@@ -9,6 +9,7 @@ import { createGlobalValidationPipe } from './common/validation/global-validatio
 import { ConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
 import { IntegrationsModule } from './integrations/integrations.module';
+import { AvailabilityModule } from './modules/availability/availability.module';
 import { ClientAuthModule } from './modules/client-auth/client-auth.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
 import { HealthModule } from './modules/health/health.module';
@@ -28,6 +29,7 @@ import { StaffAuthModule } from './modules/staff-auth/staff-auth.module';
     StaffAuthModule,
     ClientAuthModule,
     OtpModule,
+    AvailabilityModule,
     HealthModule,
   ],
   providers: [

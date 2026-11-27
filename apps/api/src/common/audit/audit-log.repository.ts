@@ -18,10 +18,36 @@ export interface AuditEntry {
   ipAddress?: string | null;
 }
 
+/** An audit_log row as history screens read it. */
+export interface AuditRow {
+  id: string;
+  actor_type: AuditEntry['actorType'];
+  actor_label: string;
+  action: string;
+  entity_id: string | null;
+  before: unknown;
+  after: unknown;
+  note: string | null;
+  created_at: Date;
+}
+
 /** The one place that writes public.audit_log. Never put secrets or clinical text in it. */
 @Injectable()
 export class AuditLogRepository {
   constructor(private readonly db: DatabaseService) {}
+
+  /** The history of one entity type (optionally one entity), newest first. */
+  async listForEntity(entityType: string, entityId: string | undefined, limit: number): Promise<AuditRow[]> {
+    const { rows } = await this.db.query<AuditRow>(
+      `SELECT id, actor_type, actor_label, action, entity_id, before, after, note, created_at
+       FROM audit_log
+       WHERE entity_type = $1 AND ($2::uuid IS NULL OR entity_id = $2)
+       ORDER BY created_at DESC, id DESC
+       LIMIT $3`,
+      [entityType, entityId ?? null, limit],
+    );
+    return rows;
+  }
 
   async record(entry: AuditEntry, db: Queryable = this.db): Promise<void> {
     await db.query(
