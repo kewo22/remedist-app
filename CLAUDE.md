@@ -160,15 +160,28 @@ modules/bookings/
   - An owner can't grant `super_admin` and can't remove the last owner.
   - `ask_remedist` holds only `ai.ask`, so every other staff route rejects it.
   - A doctor is bookable only with a `practitioners` row.
+  - Only owners (and `super_admin`) hold `patients.correct_identity`, the right to correct a client's locked Part 1 fields.
 - Check `token_version` (on `auth.staff_users` and `auth.patient_accounts`) so "log out everywhere" revokes old tokens. Refresh tokens rotate through `auth.sessions`: reusing a replaced token revokes the chain.
 - 6-digit codes (email verification, password reset, phone OTP) live in `auth.otp_requests`. `auth.one_time_tokens` is for link tokens such as staff invites. Only hashes are stored.
-- **Phone verification** (`modules/otp`, `PHONE_OTP_ROUTES`: `POST /public/otp/send` and `/verify`; purposes `login` and `booking_verification`):
+- **Phone verification** (`modules/otp`, `PHONE_OTP_ROUTES`: `POST /public/otp/send` and `/verify`; purposes `login`, `booking_verification` and `phone_change`):
   - **Send:** goes through the full OTP limits, plus Turnstile from the second send in 15 minutes. The message goes by WhatsApp, then SMS (`PhoneMessenger`). If Twilio fails, the API returns 503 and the attempt still counts against the limits.
   - **Check:** a wrong code gets 400 `INVALID_CODE`. Expired, used, too many guesses or never sent gets 410 `CODE_EXPIRED`.
   - **Proof token:** success returns a 15-minute `phoneVerificationToken`. It's a JWT with the client secret but audience `phone-verification`, so it never works as a sign-in token. Its `jti` is the code's `auth.otp_requests` row.
   - **Requiring a verified phone:** a step that needs one calls `PhoneVerificationService.check(token, purpose, phone?)` (or `requireVerifiedPhone` for just the number). Never trust a "verified" flag from the browser.
   - **Single use:** a step that completes something with the proof (phone sign-in; booking should too) also calls `useVerifiedPhone(verified, purpose, tx)` inside its transaction. It sets `proof_used_at` on the code row, and a second use gets `PHONE_NOT_VERIFIED`.
 - **Security panel** (`SECURITY_ROUTES`, `@StaffOnly(Permission.SETTINGS_MANAGE)`, so owners can use it as in the old app): the 24-hour send overview, and listing, adding and removing blocklist entries. Every add and remove is audited. The daily-cap alert emails `ADMIN_ALERT_EMAILS` once per UTC day.
+
+### Contacts and clients
+`modules/contacts`; routes in `PORTAL_PROFILE_ROUTES` and `ADMIN_CLIENT_ROUTES`. The module is global: sign-up, intake, booking and pro-bono use its repository and services.
+- **Acting for a contact:** a portal route that takes a `contactId` calls `ContactAccessService.requireOwned(client, contactId?)`. It allows only the account holder's own contact or one of their dependents (`account_dependents`), and answers 403 otherwise.
+- **Locked fields:** name, gender, nationality, ID type and number, and date of birth lock once `part1_completed_at` is set.
+  - Only `PATCH /admin/clients/:id/identity` changes them afterwards (owners: `patients.correct_identity`). It's recorded in `audit_log` as `contact.identity_corrected`, with only the changed fields and the note.
+  - ID type and number are set or cleared together, and a duplicate number gets 409 `DUPLICATE_ID_NUMBER`. A nationality change moves `residency` with it (`residencyForNationality`).
+- **Client profile** (`/portal/profile`): can't be edited before Part 1 (`PART1_INCOMPLETE`). The email isn't editable there, because it's also the login. A new mobile number needs a `phone_change` proof for that number, spent in the update's transaction: that number receives sign-in and reset codes.
+- **Staff edits** (`PATCH /admin/clients/:id`, `patients.manage`): the other details and the pipeline stage. The name only before Part 1. The email can't change while the contact has a portal login (`CONTACT_EMAIL_LOCKED`). Payment settings need `billing.manage` too; credit isn't editable, because it comes from the ledger.
+- **Every edit** locks the row (`SELECT ... FOR UPDATE`), writes only the fields that actually changed, and records them in `audit_log`. Nothing is written for a no-op.
+- **Registration numbers** (`REM-0001`...): `RegistrationNumberService.assign(contactId, tx)`, called inside Part 1's transaction. It's idempotent, and the sequence lives in `sequence_counters`.
+- **Search** (`GET /admin/clients?q=`) matches name, email, registration number and ID number (contains, any case), and the phone by its digits. LIKE wildcards in `q` are matched literally. Archived contacts are left out unless `includeArchived=true`.
 
 ### Database
 - Only repositories run SQL, and every query is parameterised.
