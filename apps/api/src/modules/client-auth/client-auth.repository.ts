@@ -154,11 +154,19 @@ export class ClientAuthRepository {
     );
   }
 
-  /** Sets a new password and invalidates every outstanding access token. */
-  async resetPassword(accountId: string, passwordHash: string, db: Queryable): Promise<void> {
+  /**
+   * Sets a new password and invalidates every outstanding access token. `verifyEmail` also marks the
+   * email verified (conditional, so an earlier verification time is kept): an emailed reset code
+   * proves the client owns the address.
+   */
+  async resetPassword(accountId: string, passwordHash: string, verifyEmail: boolean, db: Queryable): Promise<void> {
     await db.query(
-      'UPDATE auth.patient_accounts SET password_hash = $2, token_version = token_version + 1 WHERE id = $1',
-      [accountId, passwordHash],
+      `UPDATE auth.patient_accounts
+       SET password_hash = $2,
+           token_version = token_version + 1,
+           email_verified_at = CASE WHEN $3 THEN COALESCE(email_verified_at, now()) ELSE email_verified_at END
+       WHERE id = $1`,
+      [accountId, passwordHash, verifyEmail],
     );
   }
 

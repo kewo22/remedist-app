@@ -391,7 +391,9 @@ export class ClientAuthService implements OnModuleInit {
 
   /**
    * Checks the reset code and sets the new password in one step. Signs out every device (a reset
-   * often follows a compromise) and signs this one in.
+   * often follows a compromise) and signs this one in. A correct emailed code proves the client
+   * owns the address, as verify-email does, so an unverified email is marked verified here;
+   * otherwise login would refuse the password just set. (Phone resets only reach verified accounts.)
    */
   async resetPassword(
     email: string,
@@ -408,8 +410,9 @@ export class ClientAuthService implements OnModuleInit {
     }
 
     const passwordHash = await hash(newPassword, BCRYPT_COST);
+    const verifiesEmail = identifier.kind === 'email' && account.email_verified_at === null;
     await this.db.transaction(async (tx) => {
-      await this.repository.resetPassword(account.id, passwordHash, tx);
+      await this.repository.resetPassword(account.id, passwordHash, verifiesEmail, tx);
       const revoked = await this.sessions.endAll('patient', account.id, tx);
       await this.audit.record(
         {
@@ -419,7 +422,9 @@ export class ClientAuthService implements OnModuleInit {
           action: 'patient_account.password_reset',
           entityType: 'patient_account',
           entityId: account.id,
-          after: { sessionsRevoked: revoked },
+          after: verifiesEmail
+            ? { sessionsRevoked: revoked, channel: identifier.kind, emailVerified: true }
+            : { sessionsRevoked: revoked, channel: identifier.kind },
           requestId: client.requestId,
           ipAddress: client.ipAddress,
         },
@@ -572,8 +577,10 @@ export class ClientAuthService implements OnModuleInit {
 
   /**
    * Who a reset code goes to. Eligible only with a password (Google-only accounts have none) and,
-   * for the phone channel, a phone on the contact (set at Part 1 registration). When not eligible,
-   * `account` is undefined and the email is used as the identifier, so limits apply the same way.
+   * for the phone channel, a verified email and a phone on the contact (set at Part 1
+   * registration). A phone code doesn't prove who owns the email, so it can't verify it, and an
+   * unverified account couldn't sign in again with the new password. When not eligible, `account`
+   * is undefined and the email is used as the identifier, so the answer and limits are the same.
    */
   private async resolveResetTarget(
     email: string,
@@ -584,7 +591,7 @@ export class ClientAuthService implements OnModuleInit {
       return { identifier: emailIdentifier(email) };
     }
     if (channel === 'phone') {
-      return account.contact_phone
+      return account.contact_phone && account.email_verified_at
         ? { account, identifier: { kind: 'phone', value: account.contact_phone } }
         : { identifier: emailIdentifier(email) };
     }
