@@ -185,6 +185,25 @@ modules/bookings/
 - **Registration numbers** (`REM-0001`...): `RegistrationNumberService.assign(contactId, tx)`, called inside Part 1's transaction. It's idempotent, and the sequence lives in `sequence_counters`.
 - **Search** (`GET /admin/clients?q=`) matches name, email, registration number and ID number (contains, any case), and the phone by its digits. LIKE wildcards in `q` are matched literally. Archived contacts are left out unless `includeArchived=true`.
 
+### Availability
+`modules/availability`; routes in `PUBLIC_AVAILABILITY_ROUTES` and `ADMIN_AVAILABILITY_ROUTES`. Every CRM route needs `schedule.manage`. It exports `SlotsService`, `SessionTypesService` and the repository for booking, walk-in, pro-bono and Google Calendar.
+- **Clinic time:** staff enter clinic-local dates and times (Asia/Colombo, +05:30 all year), and the API stores instants. Convert only with `clinicDateTime`, `clinicDateOf` and `clinicTimeOf` from `packages/shared/rules/clinic-time.ts`. Ranges are clinic-local days.
+- **Money in the API:** amounts are integer minor units (`rateLkrMinor`, `rateUsdMinor`). `money_minor` is BIGINT: select it `::text` and convert with `Number`.
+- **Session types:**
+  - Names are unique in any case (`SESSION_TYPE_NAME_TAKEN`). Lengths are 15–480 minutes, with at least one price.
+  - Retired types are deactivated, never deleted. The last active one can't be retired (`LAST_SESSION_TYPE`); retirements lock every active row, so two at once can't both pass.
+  - The walk-in default is the oldest active type (`defaultType`).
+- **Slots:**
+  - **Opening:** a slot is opened as an active session type and copies its length and prices. `practitionerId` may be omitted while only one practitioner is active.
+  - **Editing:** an edit can switch the type (copying it again), or override the length and prices for that slot only.
+  - **Past times:** opening or moving a slot into the past is refused.
+  - **Allowed changes:** only open or blocked slots can be edited or deleted, and only open ones blocked (`SLOT_STATUS_CONFLICT`). Booked slots change only through booking.
+  - **Delete:** deleting sets `status = 'deleted'`.
+  - **Overlaps:** the `availability_slots_no_overlap` constraint rejects them per practitioner (`isExclusionViolation` → `SLOT_OVERLAP`). Two practitioners may work at the same time.
+- **History:** every change is in `audit_log` (entity `availability_slot`, actions `slot.*`), with a `SlotSnapshot` before and after. `GET /admin/availability/history` reads it. Booking and calendar sync should write their slot changes the same way.
+- **Public list:** open slots of active practitioners on one clinic-local day, without those inside `PUBLIC_BOOKING_CUTOFF_HOURS`. It carries both prices; the web picks one with `rateForResidency`. `GET /public/availability/dates` lists the days with a bookable slot.
+- **Google Calendar** (event per slot, sync, conflict flags) is the next task. `acknowledge-flag` already clears a flag.
+
 ### Database
 - Only repositories run SQL, and every query is parameterised.
 - Use a transaction for any multi-step write.
