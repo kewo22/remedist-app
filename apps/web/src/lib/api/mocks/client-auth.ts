@@ -4,7 +4,8 @@
 //   - nimali@example.com / remedist1        a verified email-and-password account
 //   - google.only@example.com               a Google-only account: password login fails, use Google
 //   - too-many@example.com                  login and sign-up answer 429 with a 30 s Retry-After
-//   - any new email on the sign-up page     then the code 123456 (5 wrong guesses use it up)
+//   - any new email on the sign-up page     then the code 123456 (5 wrong guesses use it up); a new
+//                                           code can be asked for after 60 seconds
 // Phone sign-in: see mocks/phone-otp.ts for the numbers.
 // Forgot password: code 123456. Asking again within 15 minutes needs the security check, and
 // within 60 seconds answers 429.
@@ -80,7 +81,7 @@ const accountEmailsByPhone = new Map<string, string[]>([
   ['+94770000003', ['nimali@example.com', 'google.only@example.com']],
 ]);
 
-const pendingSignUps =new Map<string, PendingCode & { name: string; password: string }>();
+const pendingSignUps =new Map<string, PendingCode & { name: string; password: string; sentAt: number }>();
 const pendingResets = new Map<string, PendingCode & { sentAt: number }>();
 
 const tooManyAttempts = (seconds: number) =>
@@ -151,8 +152,14 @@ export const mockClientAuthApi: ClientAuthApi = {
         { field: 'password', messages: [`password must be at least ${CLIENT_PASSWORD_MIN_LENGTH} characters`] },
       ]);
     }
+    // Like the API's send cooldown: asking again for the same email straight away answers 429.
+    const previous = pendingSignUps.get(email);
+    const now = Date.now();
+    if (previous && now - previous.sentAt < RESEND_WAIT_SECONDS * 1000) {
+      return tooManyAttempts(Math.ceil((previous.sentAt + RESEND_WAIT_SECONDS * 1000 - now) / 1000));
+    }
     // Same answer when the email already has an account (the owner would get an email instead).
-    if (!accounts.has(email)) pendingSignUps.set(email, { name, password, code: MOCK_CODE, wrongGuesses: 0 });
+    if (!accounts.has(email)) pendingSignUps.set(email, { name, password, code: MOCK_CODE, wrongGuesses: 0, sentAt: now });
     return mockOk({
       data: { email, devCode: MOCK_CODE },
       message: 'Account created. Check your email for a verification code.',

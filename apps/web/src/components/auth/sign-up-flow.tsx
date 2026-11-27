@@ -105,7 +105,9 @@ function DetailsForm({ onSent }: { onSent: (sent: Sent) => void }) {
 const codeSchema = z.object({ code: oneTimeCodeField });
 
 function VerifyEmailStep({ sent, onResent, onBack }: { sent: Sent; onResent: (sent: Sent) => void; onBack: () => void }) {
-  const wait = useCountdown();
+  // Separate waits: a refused resend must not stop the client entering the code they already have.
+  const verifyWait = useCountdown();
+  const resendWait = useCountdown();
   const [resending, setResending] = useState(false);
   const [resendError, setResendError] = useState<string | null>(null);
   const [codeRejected, setCodeRejected] = useState(false);
@@ -123,7 +125,7 @@ function VerifyEmailStep({ sent, onResent, onBack }: { sent: Sent; onResent: (se
         return;
       }
       const retryAfter = getRetryAfterSeconds(error);
-      if (retryAfter) wait.start(retryAfter);
+      if (retryAfter) verifyWait.start(retryAfter);
       applyApiErrors(error, form.setError, ['code']);
     }
   }
@@ -140,7 +142,7 @@ function VerifyEmailStep({ sent, onResent, onBack }: { sent: Sent; onResent: (se
       toast.success('We sent a new code.');
     } catch (error) {
       const retryAfter = getRetryAfterSeconds(error);
-      if (retryAfter) wait.start(retryAfter);
+      if (retryAfter) resendWait.start(retryAfter);
       setResendError(getErrorMessage(error));
     } finally {
       setResending(false);
@@ -186,15 +188,21 @@ function VerifyEmailStep({ sent, onResent, onBack }: { sent: Sent; onResent: (se
             </p>
           )}
           <FormServerError message={form.formState.errors.root?.server?.message} />
-          <Button type="submit" size="lg" className="w-full" loading={form.formState.isSubmitting} disabled={wait.secondsLeft > 0}>
-            Verify and continue
+          <Button
+            type="submit"
+            size="lg"
+            className="w-full"
+            loading={form.formState.isSubmitting}
+            disabled={verifyWait.secondsLeft > 0}
+          >
+            {verifyWait.secondsLeft > 0 ? `Try again in ${formatCountdown(verifyWait.secondsLeft)}` : 'Verify and continue'}
           </Button>
         </FieldGroup>
       </form>
 
       <div className="flex flex-col gap-2">
-        <Button type="button" variant="outline" onClick={resend} loading={resending} disabled={wait.secondsLeft > 0}>
-          {wait.secondsLeft > 0 ? `Send a new code in ${formatCountdown(wait.secondsLeft)}` : 'Send a new code'}
+        <Button type="button" variant="outline" onClick={resend} loading={resending} disabled={resendWait.secondsLeft > 0}>
+          {resendWait.secondsLeft > 0 ? `Send a new code in ${formatCountdown(resendWait.secondsLeft)}` : 'Send a new code'}
         </Button>
         {resendError && (
           <p role="alert" className="text-sm text-destructive">
