@@ -57,6 +57,17 @@ export const ErrorCode = {
   /** The client signs in with this email, so staff can't change it from the CRM. */
   CONTACT_EMAIL_LOCKED: 'CONTACT_EMAIL_LOCKED',
 
+  // Availability
+  /** The slot overlaps another of that practitioner's slots. */
+  SLOT_OVERLAP: 'SLOT_OVERLAP',
+  /** The slot's status doesn't allow that change (for example editing a booked slot). */
+  SLOT_STATUS_CONFLICT: 'SLOT_STATUS_CONFLICT',
+  /** That session type is retired: pick another. */
+  SESSION_TYPE_RETIRED: 'SESSION_TYPE_RETIRED',
+  /** At least one session type must stay active. */
+  LAST_SESSION_TYPE: 'LAST_SESSION_TYPE',
+  /** Another session type already has that name. */
+  SESSION_TYPE_NAME_TAKEN: 'SESSION_TYPE_NAME_TAKEN',
   // Intake and terms
   /** Part 1 registration is already complete for this profile. */
   PART1_ALREADY_COMPLETED: 'PART1_ALREADY_COMPLETED',
