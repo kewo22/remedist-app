@@ -22,6 +22,18 @@ export type LogLevelName = (typeof LOG_LEVELS)[number];
 /** Settings that have no safe default in production: a missing one stops the boot there. */
 export const REQUIRED_IN_PRODUCTION = ['WEB_URL', 'APP_URL'] as const;
 
+/**
+ * Object storage settings. With no endpoint or credentials, files go to the local demo store; once
+ * any of those is set, all of these are required.
+ */
+export const STORAGE_VARIABLES = [
+  'STORAGE_BUCKET',
+  'AWS_ENDPOINT_URL_S3',
+  'AWS_REGION',
+  'AWS_ACCESS_KEY_ID',
+  'AWS_SECRET_ACCESS_KEY',
+] as const;
+
 /** A URL that `new URL()` accepts, using one of the given protocols (without the colon). */
 function IsUrlWithProtocol(protocols: readonly string[], options?: ValidationOptions): PropertyDecorator {
   return ValidateBy(
@@ -141,6 +153,29 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   TURNSTILE_SECRET_KEY?: string;
+
+  // ── Object storage (Neon, S3-compatible). Without it, files go to a local folder (demo mode). ──
+  // The four AWS_* names are Neon's: `neon env pull` fills them for the checked-out branch.
+
+  @IsOptional()
+  @IsString()
+  STORAGE_BUCKET?: string;
+
+  @IsOptional()
+  @IsUrlWithProtocol(['https', 'http'])
+  AWS_ENDPOINT_URL_S3?: string;
+
+  @IsOptional()
+  @IsString()
+  AWS_REGION?: string;
+
+  @IsOptional()
+  @IsString()
+  AWS_ACCESS_KEY_ID?: string;
+
+  @IsOptional()
+  @IsString()
+  AWS_SECRET_ACCESS_KEY?: string;
 
   // ── One-time codes ──
 
