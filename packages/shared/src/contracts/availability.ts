@@ -150,6 +150,10 @@ export interface AdminSlot {
   sessionTypeId: string | null;
   sessionTypeName: string | null;
   blockReason: string | null;
+  /** Blocked by a private event in the clinic's Google Calendar (unblocks when that event moves away). */
+  blockedByCalendar: boolean;
+  /** The slot's Google Calendar event hasn't caught up with a change yet (retried every 5 minutes). */
+  calendarPending: boolean;
   /** A Google Calendar change on a booked slot that staff need to review. */
   flaggedForReview: boolean;
   flagReason: string | null;
@@ -208,6 +212,10 @@ export const SLOT_HISTORY_ACTIONS = [
   'slot.unblocked',
   'slot.deleted',
   'slot.flag_cleared',
+  /** Moved or deleted because its event was changed in Google Calendar. */
+  'slot.synced_from_google',
+  /** A Google change that couldn't be applied (booked slot, or an overlap): see the note. */
+  'slot.sync_conflict',
 ] as const;
 
 /** The slot's fields before and after a change. */

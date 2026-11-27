@@ -79,6 +79,14 @@ export const ErrorCode = {
   TERMS_INCOMPLETE: 'TERMS_INCOMPLETE',
   /** The uploaded file isn't a JPEG, PNG or WebP image. */
   INVALID_PHOTO: 'INVALID_PHOTO',
+
+  // Google Calendar
+  /** The server has no Google client settings, so the calendar can't be connected. */
+  CALENDAR_NOT_CONFIGURED: 'CALENDAR_NOT_CONFIGURED',
+  /** No Google Calendar is connected. */
+  CALENDAR_NOT_CONNECTED: 'CALENDAR_NOT_CONNECTED',
+  /** A calendar sync is already running: try again in a moment. */
+  CALENDAR_SYNC_BUSY: 'CALENDAR_SYNC_BUSY',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

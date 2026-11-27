@@ -18,6 +18,7 @@
     "@nestjs/core": "^11.2.11",
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/platform-express": "^11.2.11",
+    "@nestjs/schedule": "^12.0.4",
     "@remedist/shared": "workspace:*",
     "bcryptjs": "^3.0.3",
     "class-transformer": "^0.5.1",

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CalendarModule } from '../calendar/calendar.module';
 import {
   AdminAvailabilityController,
   PublicAvailabilityController,
@@ -13,6 +14,7 @@ import { SlotsService } from './slots.service';
  * and the Google Calendar integration.
  */
 @Module({
+  imports: [CalendarModule],
   controllers: [PublicAvailabilityController, AdminAvailabilityController, SessionTypesController],
   providers: [AvailabilityRepository, SessionTypesService, SlotsService],
   exports: [AvailabilityRepository, SessionTypesService, SlotsService],

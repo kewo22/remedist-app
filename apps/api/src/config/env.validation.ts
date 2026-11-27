@@ -4,6 +4,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   Max,
   Min,
   MinLength,
@@ -147,6 +148,25 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   GOOGLE_OAUTH_CLIENT_ID?: string;
+
+  // ── Google Calendar (same OAuth client). Without the secret, the calendar runs in demo mode. ──
+
+  @IsOptional()
+  @IsString()
+  GOOGLE_OAUTH_CLIENT_SECRET?: string;
+
+  /** The connected account's calendar to use; 'primary' is its main calendar. */
+  @IsString()
+  GOOGLE_CALENDAR_ID = 'primary';
+
+  /** Encrypts stored OAuth tokens (AES-256-GCM): 32 random bytes, base64. Required with the secret. */
+  @IsOptional()
+  @IsString()
+  TOKEN_ENCRYPTION_KEY?: string;
+
+  /** When the calendar job runs (cron, 5 or 6 fields). */
+  @Matches(/^\S+( \S+){4,5}$/, { message: 'AVAILABILITY_SYNC_CRON must be a cron expression with 5 or 6 fields' })
+  AVAILABILITY_SYNC_CRON = '*/5 * * * *';
 
   // ── Cloudflare Turnstile. Without it, every challenge passes (demo mode). ──
 

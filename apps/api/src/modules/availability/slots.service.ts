@@ -20,6 +20,7 @@ import type { CurrentStaff } from '../../common/auth/current-staff';
 import { ValidationFailedException } from '../../common/exceptions/common.exceptions';
 import { DatabaseService, Queryable } from '../../database/database.service';
 import { isExclusionViolation } from '../../database/pg-errors';
+import { CalendarEventsService } from '../calendar/calendar-events.service';
 import { SLOT_AUDIT_ACTION, SLOT_ENTITY } from './availability.constants';
 import {
   SessionTypeRetiredException,
@@ -59,6 +60,7 @@ export class SlotsService {
     private readonly availability: AvailabilityRepository,
     private readonly audit: AuditLogRepository,
     private readonly db: DatabaseService,
+    private readonly calendarEvents: CalendarEventsService,
   ) {}
 
   // ── Public ─────────────────────────────────────────────────────────────────────────────
@@ -132,6 +134,7 @@ export class SlotsService {
       await this.record(staff, info, SLOT_AUDIT_ACTION.created, slot.id, undefined, slot, undefined, tx);
       return slot.id;
     });
+    await this.calendarEvents.pushAfterChange(id);
     return this.adminSlot(id);
   }
 
@@ -181,6 +184,7 @@ export class SlotsService {
       const updated = await this.availability.updateSlot(id, changes, tx);
       await this.record(staff, info, SLOT_AUDIT_ACTION.updated, id, current, updated, undefined, tx);
     });
+    await this.calendarEvents.pushAfterChange(id);
     return this.adminSlot(id);
   }
 
@@ -242,6 +246,7 @@ export class SlotsService {
       const updated = await this.availability.setSlotStatus(id, next.status, next.blockReason, tx);
       await this.record(staff, info, next.action, id, current, updated, next.note, tx);
     });
+    await this.calendarEvents.pushAfterChange(id);
   }
 
   private async lockSlot(id: string, tx: Queryable): Promise<SlotRow> {

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AuditModule } from './common/audit/audit-log.repository';
 import { AuthCoreModule } from './common/auth/auth-core.module';
 import { RoutePolicyGuard } from './common/auth/route-policy.guard';
@@ -11,6 +12,7 @@ import { ConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { AvailabilityModule } from './modules/availability/availability.module';
+import { CalendarModule } from './modules/calendar/calendar.module';
 import { ClientAuthModule } from './modules/client-auth/client-auth.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
 import { HealthModule } from './modules/health/health.module';
@@ -23,6 +25,7 @@ import { TermsModule } from './modules/terms/terms.module';
 @Module({
   imports: [
     ConfigModule,
+    ScheduleModule.forRoot(),
     DatabaseModule,
     AuditModule,
     ClinicalAccessLogModule,
@@ -34,6 +37,7 @@ import { TermsModule } from './modules/terms/terms.module';
     ClientAuthModule,
     OtpModule,
     AvailabilityModule,
+    CalendarModule,
     TermsModule,
     IntakeModule,
     HealthModule,

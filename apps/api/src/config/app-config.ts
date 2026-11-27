@@ -51,6 +51,20 @@ export abstract class AppConfig {
     /** Unset means Google sign-in only accepts `demo:` tokens, and only outside production. */
     readonly oauthClientId?: string;
   };
+  /**
+   * Google Calendar. `oauth` is unset in demo mode (no client secret): outside production a fake
+   * calendar is connected so the flow can be tried; in production connecting is refused.
+   */
+  abstract readonly calendar: {
+    readonly oauth?: {
+      readonly clientId: string;
+      readonly clientSecret: string;
+      /** 32-byte AES-256-GCM key for the stored tokens. */
+      readonly tokenEncryptionKey: Buffer;
+    };
+    readonly calendarId: string;
+    readonly syncCron: string;
+  };
   abstract readonly turnstile: {
     /** Unset means every challenge passes (demo mode). */
     readonly secretKey?: string;
@@ -104,6 +118,18 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     problems.push(`Object storage needs all of ${STORAGE_VARIABLES.join(', ')}; missing ${storageMissing.join(', ')}`);
   }
 
+  // The calendar needs the client id, its secret and the token key together.
+  let tokenEncryptionKey: Buffer | undefined;
+  if (vars.GOOGLE_OAUTH_CLIENT_SECRET) {
+    if (!vars.GOOGLE_OAUTH_CLIENT_ID) {
+      problems.push('GOOGLE_OAUTH_CLIENT_ID must be set with GOOGLE_OAUTH_CLIENT_SECRET');
+    }
+    tokenEncryptionKey = vars.TOKEN_ENCRYPTION_KEY ? Buffer.from(vars.TOKEN_ENCRYPTION_KEY, 'base64') : undefined;
+    if (tokenEncryptionKey?.length !== 32) {
+      problems.push('TOKEN_ENCRYPTION_KEY must be 32 random bytes, base64-encoded, when GOOGLE_OAUTH_CLIENT_SECRET is set');
+    }
+  }
+
   if (vars.NODE_ENV === 'production') {
     for (const key of REQUIRED_IN_PRODUCTION) {
       if (!(key in present)) {
@@ -140,6 +166,18 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       smsFrom: vars.TWILIO_SMS_FROM,
     },
     google: { oauthClientId: vars.GOOGLE_OAUTH_CLIENT_ID },
+    calendar: {
+      oauth:
+        vars.GOOGLE_OAUTH_CLIENT_ID && vars.GOOGLE_OAUTH_CLIENT_SECRET && tokenEncryptionKey
+          ? {
+              clientId: vars.GOOGLE_OAUTH_CLIENT_ID,
+              clientSecret: vars.GOOGLE_OAUTH_CLIENT_SECRET,
+              tokenEncryptionKey,
+            }
+          : undefined,
+      calendarId: vars.GOOGLE_CALENDAR_ID,
+      syncCron: vars.AVAILABILITY_SYNC_CRON,
+    },
     turnstile: { secretKey: vars.TURNSTILE_SECRET_KEY },
     storage:
       vars.STORAGE_BUCKET && vars.AWS_ENDPOINT_URL_S3 && vars.AWS_REGION && vars.AWS_ACCESS_KEY_ID && vars.AWS_SECRET_ACCESS_KEY
