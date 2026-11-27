@@ -152,6 +152,8 @@ modules/bookings/
   - **Send limits:** every code send goes through `OtpService` (`modules/otp`): blocklist, then the daily cap, then the per-identifier/IP windows, then the cooldown. Password reset also needs Turnstile from the second send in 15 minutes (`CHALLENGE_REQUIRED`).
   - **Google:** verified server-side with `google-auth-library`. Google must have verified the email. Linking to an account whose email was never verified removes its password and takes Google's name (recorded in `audit_log`). Without `GOOGLE_OAUTH_CLIENT_ID`, only `demo:<email>[:<name>]` tokens work, and only outside production.
   - **Reset:** signs out every device (bumps `token_version` and ends all sessions), then signs this one in. The `phone` channel sends the code by WhatsApp/SMS to the phone on the client's contact (set at Part 1). Without one, the answer is the same and nothing is sent.
+    - An `email`-channel reset also marks an unverified email verified: the emailed code proves ownership, and login would otherwise refuse the new password. It's recorded in the reset's `audit_log` entry (`emailVerified: true`).
+    - A `phone`-channel reset needs a verified email: a phone code doesn't prove who owns the email. An unverified account gets the same answer and nothing is sent.
   - **No email leaks:** a provider failure never changes the response. It's logged and recorded as `failed`. In demo email mode outside production, responses include `devCode`.
 - Staff routes check **permissions, never role names**. Roles and permissions are defined once in `packages/shared/src/enums/role.ts` (`ROLE_DEFINITIONS`); the seed copies them into `auth.roles` and `auth.role_permissions`. One person can hold several roles: Rauzan is `owner` + `doctor`.
 - Role rules:
