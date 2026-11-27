@@ -4,4 +4,6 @@
 export * from './client-account';
 export * from './contact';
 export * from './date-time';
+export * from './intake';
 export * from './phone';
+export * from './terms';
