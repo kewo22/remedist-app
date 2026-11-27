@@ -9,7 +9,8 @@ export const PHONE_OTP_ROUTES = {
   verify: '/public/otp/verify',
 } as const;
 
-export const PHONE_OTP_PURPOSES = ['login', 'booking_verification'] as const;
+/** 'phone_change' proves the new number when a client changes it in their portal profile. */
+export const PHONE_OTP_PURPOSES = ['login', 'booking_verification', 'phone_change'] as const;
 export type PhoneOtpPurpose = (typeof PHONE_OTP_PURPOSES)[number];
 
 /** How the code was delivered: WhatsApp first, SMS if WhatsApp isn't available. */
