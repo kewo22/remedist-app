@@ -91,6 +91,26 @@ export const ErrorCode = {
   CALENDAR_NOT_CONNECTED: 'CALENDAR_NOT_CONNECTED',
   /** A calendar sync is already running: try again in a moment. */
   CALENDAR_SYNC_BUSY: 'CALENDAR_SYNC_BUSY',
+
+  // Bookings
+  /** The slot was just taken, isn't open, or is too soon to book online: pick another. */
+  SLOT_UNAVAILABLE: 'SLOT_UNAVAILABLE',
+  /** The client must accept the current Terms & Conditions before booking. */
+  TERMS_REACCEPT_REQUIRED: 'TERMS_REACCEPT_REQUIRED',
+  /** A pay-after session is overdue: the client must settle it (with the clinic) before booking online. */
+  PAYMENT_OVERDUE_LOCKOUT: 'PAYMENT_OVERDUE_LOCKOUT',
+  /** Staff: the client is locked out online for an overdue balance. Resend with overrideLockoutWarning to book anyway. */
+  OVERDUE_LOCKOUT_WARNING: 'OVERDUE_LOCKOUT_WARNING',
+  /** The booking's status doesn't allow that (for example cancelling a no-show). */
+  BOOKING_STATUS_CONFLICT: 'BOOKING_STATUS_CONFLICT',
+  /** Too close to the session to reschedule online: contact the clinic. */
+  RESCHEDULE_TOO_LATE: 'RESCHEDULE_TOO_LATE',
+  /** The one self-service reschedule for this booking was already used. */
+  RESCHEDULE_ALREADY_USED: 'RESCHEDULE_ALREADY_USED',
+  /** The new date is more than 30 days from the original session date. */
+  OUTSIDE_RESCHEDULE_WINDOW: 'OUTSIDE_RESCHEDULE_WINDOW',
+  /** No open slot left today for a walk-in: check with staff. */
+  NO_SLOTS_TODAY: 'NO_SLOTS_TODAY',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

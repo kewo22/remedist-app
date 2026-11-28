@@ -2,6 +2,7 @@
 // Add one file per rule group (for example pricing.ts) and re-export it here.
 
 export * from './availability';
+export * from './booking';
 export * from './client-account';
 export * from './clinic-time';
 export * from './contact';
