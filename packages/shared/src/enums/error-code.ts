@@ -19,6 +19,10 @@ export const ErrorCode = {
   INTERNAL_ERROR: 'INTERNAL_ERROR',
   SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
 
+  // Webhooks
+  /** A webhook's signature didn't match: the request isn't from the provider. */
+  INVALID_WEBHOOK_SIGNATURE: 'INVALID_WEBHOOK_SIGNATURE',
+
   // Auth
   /** Wrong email or password. Deliberately doesn't say which. */
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
