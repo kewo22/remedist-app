@@ -37,7 +37,7 @@ The API and the web app are built **at the same time, in separate Git worktrees*
 | Jobs | `@nestjs/schedule` + Postgres advisory locks |
 | Docs and monitoring | Swagger, Sentry, `/health` |
 | Hosting | Railway (API and web as separate services) |
-| Integrations | PayHere, Twilio (WhatsApp/SMS), Resend, Google Calendar + Google sign-in, Anthropic Claude, Cloudflare Turnstile, Neon Object Storage (S3 API via `@aws-sdk/client-s3`) |
+| Integrations | PayHere, Twilio (WhatsApp), Dialog e-SMS (SMS), Resend, Google Calendar + Google sign-in, Anthropic Claude, Cloudflare Turnstile, Neon Object Storage (S3 API via `@aws-sdk/client-s3`) |
 
 ## Commands
 
@@ -166,11 +166,11 @@ modules/bookings/
 - Check `token_version` (on `auth.staff_users` and `auth.patient_accounts`) so "log out everywhere" revokes old tokens. Refresh tokens rotate through `auth.sessions`: reusing a replaced token revokes the chain.
 - 6-digit codes (email verification, password reset, phone OTP) live in `auth.otp_requests`. `auth.one_time_tokens` is for link tokens such as staff invites. Only hashes are stored.
 - **Phone verification** (`modules/otp`, `PHONE_OTP_ROUTES`: `POST /public/otp/send` and `/verify`; purposes `login`, `booking_verification` and `phone_change`):
-  - **Send:** goes through the full OTP limits, plus Turnstile from the second send in 15 minutes. The message goes by WhatsApp, then SMS (`PhoneMessenger`). If Twilio fails, the API returns 503 and the attempt still counts against the limits.
+  - **Send:** goes through the full OTP limits, plus Turnstile from the second send in 15 minutes. The message goes by WhatsApp, then SMS (`PhoneMessenger`, see "Messaging"). If no channel delivers it, the API returns 503 and the attempt still counts against the limits.
   - **Check:** a wrong code gets 400 `INVALID_CODE`. Expired, used, too many guesses or never sent gets 410 `CODE_EXPIRED`.
   - **Proof token:** success returns a 15-minute `phoneVerificationToken`. It's a JWT with the client secret but audience `phone-verification`, so it never works as a sign-in token. Its `jti` is the code's `auth.otp_requests` row.
   - **Requiring a verified phone:** a step that needs one calls `PhoneVerificationService.check(token, purpose, phone?)` (or `requireVerifiedPhone` for just the number). Never trust a "verified" flag from the browser.
-  - **Single use:** a step that completes something with the proof (phone sign-in; booking should too) also calls `useVerifiedPhone(verified, purpose, tx)` inside its transaction. It sets `proof_used_at` on the code row, and a second use gets `PHONE_NOT_VERIFIED`.
+  - **Single use:** a step that completes something with the proof (phone sign-in, Part 1, a profile phone change) also calls `useVerifiedPhone(verified, purpose, tx)` inside its transaction. It sets `proof_used_at` on the code row, and a second use gets `PHONE_NOT_VERIFIED`.
 - **Security panel** (`SECURITY_ROUTES`, `@StaffOnly(Permission.SETTINGS_MANAGE)`, so owners can use it as in the old app): the 24-hour send overview, and listing, adding and removing blocklist entries. Every add and remove is audited. The daily-cap alert emails `ADMIN_ALERT_EMAILS` once per UTC day.
 
 ### Contacts and clients
@@ -259,6 +259,77 @@ modules/bookings/
 - **The two old sync bugs are fixed** in `eventRange`: times are compared as instants, and all-day events (`start.date`) cover whole clinic days, with the end date exclusive.
 - **The job** (`CalendarSyncJob`, `AVAILABILITY_SYNC_CRON`, default every 5 minutes) runs push pending → read changes → push pending, under `pg_try_advisory_lock` on the direct connection. "Sync now" runs the same thing (`CALENDAR_SYNC_BUSY` if it's already running).
 - **Demo mode** (no `GOOGLE_OAUTH_CLIENT_SECRET`): outside production, "Connect" links an in-memory demo calendar, which forgets its events on restart. In production connecting is refused (`CALENDAR_NOT_CONFIGURED`).
+
+### Bookings
+`modules/bookings`; routes in `PORTAL_BOOKING_ROUTES` and `ADMIN_BOOKING_ROUTES`. The CRM routes need `schedule.manage`. Rules (hold length, reschedule window, strikes, the appointment code) are in `packages/shared/rules/booking.ts`.
+- **One transaction per booking** (`BookingCoreService`). Every way of booking runs the same steps: client, staff and walk-in, and later pro-bono.
+  - It claims the slot with the conditional update (`AvailabilityRepository.claimSlot`: `WHERE status = 'open'`, active practitioner, not yet ended). The unique index on active bookings is only the backstop (`SLOT_UNAVAILABLE`).
+  - The price comes from `rateForResidency` and the contact's residency, never from the request.
+  - It also issues the appointment code, creates the Part 2 form (`IntakeFormsService.createForBooking`), and writes `booking.*` and `slot.booked` / `slot.released` to `audit_log` plus the staff notification.
+  - After the commit, `afterCommit` pushes the calendar event and `messageClient` messages the client.
+- **Client booking** (`POST /portal/bookings`, for the account holder or a dependent):
+  - Needs Part 1 (`PART1_INCOMPLETE`), the current terms accepted (`TERMS_REACCEPT_REQUIRED`), and no pay-after session overdue by 30 days (`PAYMENT_OVERDUE_LOCKOUT`); all 428.
+  - The slot must be outside the 24-hour cutoff: the API enforces it, not just the list.
+  - The booking is held for 15 minutes (`HOLD_MINUTES`), or confirmed at once when the clinic allows pay-after and the client chose it.
+  - No phone code is asked for: Part 1 and profile changes already verify the mobile.
+- **Staff booking** (`POST /admin/bookings`): confirmed at once, using the contact's payment setting, and Part 1 isn't required.
+  - An overdue client gets 409 `OVERDUE_LOCKOUT_WARNING` until it's resent with `overrideLockoutWarning`.
+  - Staff text goes to `staff_notes`, never `notes`, which is the client's own words.
+- **Appointment codes:** `DDMMMYY-{P|B}{F|M}NN`, using the clinic-local session date and a per-day counter in `sequence_counters` (`appt_seq:YYYY-MM-DD`).
+  - Every reschedule issues a new code; the old ones stay in `appointment_code_history`.
+- **Reschedule:**
+  - **Client's one self-service move:** the booking must be confirmed, more than 24 hours away, and unused (`RESCHEDULE_TOO_LATE`, `RESCHEDULE_ALREADY_USED`). The new slot must be within 30 days of `original_slot_start` (`OUTSIDE_RESCHEDULE_WINDOW`) and outside the cutoff.
+  - **Staff:** any held or confirmed booking, to any open slot that hasn't ended.
+  - **Both:** re-price from the new slot, free the old slot, and keep the Part 2 form and the original date.
+- **Cancel (staff only; clients reschedule):**
+  - A confirmed session that has started must be a no-show instead.
+  - A confirmed booking cancelled less than 24 hours ahead adds a `late_cancellation` strike; a hold never does.
+  - The slot reopens, unless the session had already started.
+- **No-show:** only a confirmed session that has started. It adds a strike, and the slot stays booked, so it never reopens for pro-bono reclaim.
+- **Strikes:** `contact_strikes` holds one per booking and kind, and the count is always `COUNT(*)`. From 2 strikes, a pay-after client raises a `pay_after_review` notification on every strike.
+- **Holds:** `HoldReleaseJob` runs every minute under `pg_try_advisory_xact_lock`. It cancels expired holds (`booking.hold_expired`, actor "Hold expiry") and reopens their slots.
+- **Walk-in** (`POST /portal/walk-in`, the signed-in client only):
+  - It claims today's next open slot. If none is open, it opens one at the next quarter hour, as the default session type, while exactly one practitioner is active and that time is free. Otherwise it answers `NO_SLOTS_TODAY`.
+  - The booking is confirmed, with `booked_via = 'walk_in'`, so its Part 2 completes as `walk_in_tablet`.
+- **Booked slot events** show "Held / Session / No-show — {client name}" with phone and email, never the client's notes or attendees. A no-show marks the slot pending, so its title updates.
+- **Not built yet:**
+  - confirming a held booking when PayHere reports payment (the payments task: confirm the booking, mark the slot pending, send `bookingConfirmedMessage`);
+  - pro-bono session assignment.
+
+### Messaging
+`modules/messaging` (global; `ADMIN_MESSAGE_ROUTES`) and `integrations/messaging`.
+- **Channels:**
+  - WhatsApp and SMS carry verification codes and booking messages.
+  - Email carries email verification codes, booking messages, and later marketing.
+  - A booking message goes to the phone *and* the email. Email isn't a fallback for the phone, unlike the old app.
+- **Phone routing** (`PhoneMessenger`):
+  - WhatsApp (Twilio) comes first. If WhatsApp has no template for the message or fails, the message goes by SMS (Dialog e-SMS).
+  - e-SMS only reaches Sri Lankan mobiles (`+947…`), so a foreign number gets WhatsApp only. If that fails, the send fails.
+  - A configured provider always goes before a demo one. `status: 'skipped'` means a demo sender handled it and nothing was sent.
+- **WhatsApp templates:** a message the clinic starts must use a Meta-approved template.
+  - Each `PhoneTemplate` (`integrations/messaging/phone-templates.ts`, which lists each template's positional variables) has a `TWILIO_CONTENT_SID_*`.
+  - A new phone message needs a new template there, its env var, and an approved template in Twilio.
+  - The SMS sends the template's plain `text`.
+- **e-SMS** uses the URL API (`esmsqk` key in the query string). It answers `1` for accepted and an error code otherwise, and returns no message id.
+  - The URL holds the key and the text, so it's never logged or chained into errors.
+  - Only Dialog's API key and approved sender mask are needed.
+- **Sending to a contact:** `MessagingService.sendToContact(contact, message)`.
+  - Call it only after the change has committed.
+  - It never throws, and it is the only writer of `message_log`. Each channel gets one row: provider, recipient, entity, status, and the provider's error, never the text.
+  - Codes aren't logged there; `auth.otp_requests` is their ledger.
+  - Bookings call it through `BookingCoreService.messageClient`, which runs in the background:
+    - a staff booking sends a confirmation;
+    - a reschedule sends the new time;
+    - cancelling a confirmed booking sends a cancellation.
+  - Online bookings will be confirmed by the payments task.
+- **Twilio webhooks** (`webhooks/twilio/status` and `/inbound`, form-encoded):
+  - **Signature:** each request is trusted only after its `X-Twilio-Signature` matches `APP_URL` + path. Without `TWILIO_AUTH_TOKEN`, webhooks are refused in production and accepted with a warning elsewhere.
+  - **Status:** delivery status only moves forward (`sent` → `delivered` → `read`). `failed` and `undelivered` are final. Status callbacks are requested only when `APP_URL` is https.
+  - **Inbound:** replies are stored once per `MessageSid` in `inbound_messages`. The contact is linked when exactly one active contact has the number. Nothing acts on replies yet; the post-treatment check-in will read them. Bodies are never logged.
+- **Not built yet:**
+  - marketing opt-out and unsubscribe (with drip campaigns);
+  - Resend delivery and bounce webhooks;
+  - e-SMS delivery receipts.
 
 ### Database
 - Only repositories run SQL, and every query is parameterised.
@@ -439,7 +510,9 @@ Each app has its own `.env` and `.env.example`. The main ones:
 - Local development uses the Neon `dev` branch, pinned in the git-ignored `apps/api/.neon` (`neon checkout dev`). Never point a local `.env` at `production`.
 - `ADMIN_JWT_SECRET` (staff access tokens) and `JWT_SECRET` (client access tokens): both required, 32+ random characters, and different from each other. The migrate and seed commands load the same config, so they need them too.
 - `PAYHERE_MERCHANT_ID`, `PAYHERE_MERCHANT_SECRET`, `PAYHERE_MODE`
-- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`, `TWILIO_SMS_FROM` (WhatsApp first, then SMS; at least one sender), `RESEND_API_KEY`, `EMAIL_FROM` (a Resend-verified domain), `ADMIN_ALERT_EMAILS` (security alerts, comma-separated)
+- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (also verifies Twilio webhooks), `TWILIO_WHATSAPP_FROM`, and `TWILIO_CONTENT_SID_VERIFICATION_CODE`, `_BOOKING_CONFIRMED`, `_BOOKING_RESCHEDULED`, `_BOOKING_CANCELLED` (approved WhatsApp templates; a blank one sends that message by SMS only).
+- `ESMS_API_KEY`, `ESMS_SOURCE_ADDRESS` (Dialog e-SMS key and approved sender mask, both or neither).
+- `RESEND_API_KEY`, `EMAIL_FROM` (a Resend-verified domain), `ADMIN_ALERT_EMAILS` (security alerts, comma-separated)
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` (sign-in and Calendar share the client).
   - With the secret, `TOKEN_ENCRYPTION_KEY` (32 random bytes, base64) is required.
   - `GOOGLE_CALENDAR_ID` defaults to `primary`.
