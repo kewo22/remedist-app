@@ -35,6 +35,9 @@ export const STORAGE_VARIABLES = [
   'AWS_SECRET_ACCESS_KEY',
 ] as const;
 
+/** A Twilio Content SID (an approved WhatsApp template). */
+const CONTENT_SID = /^HX[0-9a-fA-F]{32}$/;
+
 /** A URL that `new URL()` accepts, using one of the given protocols (without the colon). */
 function IsUrlWithProtocol(protocols: readonly string[], options?: ValidationOptions): PropertyDecorator {
   return ValidateBy(
@@ -123,25 +126,52 @@ export class EnvironmentVariables {
   @IsString()
   ADMIN_ALERT_EMAILS?: string;
 
-  // ── Twilio (WhatsApp, then SMS). Without the SID, token and a sender, messages are logged (demo mode). ──
+  // ── Twilio WhatsApp. Without the SID, token and sender, WhatsApp is logged, not sent (demo mode). ──
 
   @IsOptional()
   @IsString()
   TWILIO_ACCOUNT_SID?: string;
 
+  /** Also verifies the X-Twilio-Signature on Twilio's webhooks. */
   @IsOptional()
   @IsString()
   TWILIO_AUTH_TOKEN?: string;
 
-  /** e.g. `whatsapp:+14155238886`. */
+  /** The WhatsApp sender, e.g. `whatsapp:+14155238886`. */
   @IsOptional()
-  @IsString()
+  @Matches(/^whatsapp:\+[1-9]\d{6,14}$/, { message: 'TWILIO_WHATSAPP_FROM must look like whatsapp:+14155238886' })
   TWILIO_WHATSAPP_FROM?: string;
 
-  /** An E.164 number or a Messaging Service SID. */
+  // Meta-approved WhatsApp templates (Twilio Content SIDs, HX...). A message type without one skips
+  // WhatsApp and goes by SMS. See integrations/messaging/phone-templates.ts for each one's variables.
+
+  @IsOptional()
+  @Matches(CONTENT_SID, { message: 'TWILIO_CONTENT_SID_VERIFICATION_CODE must be a Twilio Content SID (HX + 32 hex)' })
+  TWILIO_CONTENT_SID_VERIFICATION_CODE?: string;
+
+  @IsOptional()
+  @Matches(CONTENT_SID, { message: 'TWILIO_CONTENT_SID_BOOKING_CONFIRMED must be a Twilio Content SID (HX + 32 hex)' })
+  TWILIO_CONTENT_SID_BOOKING_CONFIRMED?: string;
+
+  @IsOptional()
+  @Matches(CONTENT_SID, { message: 'TWILIO_CONTENT_SID_BOOKING_RESCHEDULED must be a Twilio Content SID (HX + 32 hex)' })
+  TWILIO_CONTENT_SID_BOOKING_RESCHEDULED?: string;
+
+  @IsOptional()
+  @Matches(CONTENT_SID, { message: 'TWILIO_CONTENT_SID_BOOKING_CANCELLED must be a Twilio Content SID (HX + 32 hex)' })
+  TWILIO_CONTENT_SID_BOOKING_CANCELLED?: string;
+
+  // ── SMS by Dialog e-SMS (Sri Lankan mobiles only). Without both, SMS is logged, not sent (demo mode). ──
+
+  /** The e-SMS API key (`esmsqk`). */
   @IsOptional()
   @IsString()
-  TWILIO_SMS_FROM?: string;
+  ESMS_API_KEY?: string;
+
+  /** The approved sender mask shown to the recipient, e.g. `Remedist` (up to 11 characters). */
+  @IsOptional()
+  @Matches(/^[A-Za-z0-9 ]{1,11}$/, { message: 'ESMS_SOURCE_ADDRESS must be the approved sender mask (1-11 letters or digits)' })
+  ESMS_SOURCE_ADDRESS?: string;
 
   // ── Google sign-in. Without it, only `demo:` test tokens work, and only outside production. ──
 

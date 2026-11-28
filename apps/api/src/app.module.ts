@@ -17,6 +17,7 @@ import { ClientAuthModule } from './modules/client-auth/client-auth.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
 import { HealthModule } from './modules/health/health.module';
 import { IntakeModule } from './modules/intake/intake.module';
+import { MessagingModule } from './modules/messaging/messaging.module';
 import { NotificationsModule } from './modules/notifications/notifications.service';
 import { OtpModule } from './modules/otp/otp.module';
 import { StaffAuthModule } from './modules/staff-auth/staff-auth.module';
@@ -31,6 +32,7 @@ import { TermsModule } from './modules/terms/terms.module';
     ClinicalAccessLogModule,
     IntegrationsModule,
     NotificationsModule,
+    MessagingModule,
     ContactsModule,
     AuthCoreModule,
     StaffAuthModule,

@@ -1,19 +1,8 @@
 import type { EmailMessage } from '../../integrations/email/email.provider';
+import { codeBlock, emailLayout as layout, escapeHtml } from '../messaging/templates/email-layout';
 
 // The portal's account emails, worded as in the old app. Names are escaped: they're typed by
 // whoever fills in the sign-up form.
-
-function escapeHtml(text: string): string {
-  return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-}
-
-function layout(body: string): string {
-  return `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;">${body}</div>`;
-}
-
-function codeBlock(code: string): string {
-  return `<p style="font-size:28px;letter-spacing:6px;font-weight:700;">${code}</p>`;
-}
 
 export function verificationCodeEmail(to: string, name: string, code: string, ttlMinutes: number): EmailMessage {
   return {

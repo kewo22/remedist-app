@@ -1,4 +1,5 @@
 import { plainToInstance } from 'class-transformer';
+import type { PhoneTemplate } from '../integrations/messaging/phone-templates';
 import { validateSync } from 'class-validator';
 import {
   EnvironmentVariables,
@@ -43,9 +44,16 @@ export abstract class AppConfig {
   };
   abstract readonly twilio: {
     readonly accountSid?: string;
+    /** Also verifies Twilio's webhook signatures. */
     readonly authToken?: string;
     readonly whatsappFrom?: string;
-    readonly smsFrom?: string;
+    /** Content SIDs of the approved WhatsApp templates; a missing one sends that message by SMS. */
+    readonly contentSids: Readonly<Partial<Record<PhoneTemplate, string>>>;
+  };
+  /** Dialog e-SMS. Unset means demo mode: SMS are logged, not sent. */
+  abstract readonly esms?: {
+    readonly apiKey: string;
+    readonly sourceAddress: string;
   };
   abstract readonly google: {
     /** Unset means Google sign-in only accepts `demo:` tokens, and only outside production. */
@@ -118,6 +126,11 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     problems.push(`Object storage needs all of ${STORAGE_VARIABLES.join(', ')}; missing ${storageMissing.join(', ')}`);
   }
 
+  // e-SMS needs its key and sender mask together.
+  if (Boolean(vars.ESMS_API_KEY) !== Boolean(vars.ESMS_SOURCE_ADDRESS)) {
+    problems.push('ESMS_API_KEY and ESMS_SOURCE_ADDRESS must be set together');
+  }
+
   // The calendar needs the client id, its secret and the token key together.
   let tokenEncryptionKey: Buffer | undefined;
   if (vars.GOOGLE_OAUTH_CLIENT_SECRET) {
@@ -163,8 +176,17 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       accountSid: vars.TWILIO_ACCOUNT_SID,
       authToken: vars.TWILIO_AUTH_TOKEN,
       whatsappFrom: vars.TWILIO_WHATSAPP_FROM,
-      smsFrom: vars.TWILIO_SMS_FROM,
+      contentSids: {
+        verification_code: vars.TWILIO_CONTENT_SID_VERIFICATION_CODE,
+        booking_confirmed: vars.TWILIO_CONTENT_SID_BOOKING_CONFIRMED,
+        booking_rescheduled: vars.TWILIO_CONTENT_SID_BOOKING_RESCHEDULED,
+        booking_cancelled: vars.TWILIO_CONTENT_SID_BOOKING_CANCELLED,
+      },
     },
+    esms:
+      vars.ESMS_API_KEY && vars.ESMS_SOURCE_ADDRESS
+        ? { apiKey: vars.ESMS_API_KEY, sourceAddress: vars.ESMS_SOURCE_ADDRESS }
+        : undefined,
     google: { oauthClientId: vars.GOOGLE_OAUTH_CLIENT_ID },
     calendar: {
       oauth:

@@ -24,7 +24,8 @@ import { RefreshSessionsService, StartedSession } from '../../common/auth/refres
 import { AppConfig } from '../../config/app-config';
 import { DatabaseService } from '../../database/database.service';
 import { EmailMessage, EmailProvider, maskEmail } from '../../integrations/email/email.provider';
-import { PhoneMessenger, maskPhone } from '../../integrations/messaging/phone-messenger';
+import { PhoneDeliveryError, PhoneMessenger, maskPhone, type PhoneMessage } from '../../integrations/messaging/phone-messenger';
+import { verificationCodeMessage } from '../messaging/templates/verification-code';
 import {
   GoogleIdentity,
   GoogleIdentityVerifier,
@@ -362,10 +363,7 @@ export class ClientAuthService implements OnModuleInit {
       demo: false,
     };
     if (target.account && target.identifier.kind === 'phone') {
-      sent = await this.sendPhoneQuietly(
-        target.identifier.value,
-        `Your Remedist password reset code is ${code}. It expires in ${ttlMinutes} minutes.`,
-      );
+      sent = await this.sendPhoneQuietly(target.identifier.value, verificationCodeMessage(code, ttlMinutes, 'password_reset'));
     } else if (target.account) {
       const status = await this.sendQuietly(passwordResetCodeEmail(email, target.account.name, code, ttlMinutes));
       sent = { channel: 'email', status, demo: this.email.isDemo };
@@ -564,14 +562,16 @@ export class ClientAuthService implements OnModuleInit {
   /** The phone twin of sendQuietly: WhatsApp, then SMS; a failure never changes the response. */
   private async sendPhoneQuietly(
     toE164: string,
-    body: string,
+    message: PhoneMessage,
   ): Promise<{ channel: OtpChannel; status: OtpDeliveryStatus; demo: boolean }> {
     try {
-      const result = await this.phone.send(toE164, body);
-      return { channel: result.channel, status: result.status, demo: this.phone.isDemo };
+      const result = await this.phone.send(toE164, message);
+      // 'skipped' only comes from a demo sender.
+      return { channel: result.channel, status: result.status, demo: result.status === 'skipped' };
     } catch (error) {
       this.logger.error(`Reset code to ${maskPhone(toE164)} failed`, error instanceof Error ? error.stack : undefined);
-      return { channel: 'sms', status: 'failed', demo: false };
+      const channel = error instanceof PhoneDeliveryError && error.lastTried ? error.lastTried.channel : 'whatsapp';
+      return { channel, status: 'failed', demo: false };
     }
   }
 
