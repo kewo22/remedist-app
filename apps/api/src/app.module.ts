@@ -12,6 +12,7 @@ import { ConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { AvailabilityModule } from './modules/availability/availability.module';
+import { BookingsModule } from './modules/bookings/bookings.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { ClientAuthModule } from './modules/client-auth/client-auth.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
@@ -40,6 +41,7 @@ import { TermsModule } from './modules/terms/terms.module';
     OtpModule,
     AvailabilityModule,
     CalendarModule,
+    BookingsModule,
     TermsModule,
     IntakeModule,
     HealthModule,

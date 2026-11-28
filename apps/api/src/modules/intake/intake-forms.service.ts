@@ -102,8 +102,8 @@ export class IntakeFormsService {
 
   async submitForClient(client: CurrentClientAccount, intakeId: string, input: SubmitIntakeDto, info: ClientInfo): Promise<IntakeForm> {
     const form = await this.ownedForm(client, intakeId);
-    // Walk-in kiosk submissions ('walk_in_tablet') come with the kiosk.
-    return this.submit(form, input, 'online', { kind: 'client', client }, info);
+    // A walk-in fills it in on the clinic tablet.
+    return this.submit(form, input, form.booked_via === 'walk_in' ? 'walk_in_tablet' : 'online', { kind: 'client', client }, info);
   }
 
   /** Stores the photo, then records it; a replaced photo's file is kept (clinical files aren't deleted). */

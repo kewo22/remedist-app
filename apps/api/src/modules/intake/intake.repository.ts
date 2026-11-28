@@ -33,6 +33,8 @@ export interface IntakeFormRow {
   completed_at: Date | null;
   completed_via: IntakeCompletedVia | null;
   session_start: Date | null;
+  /** The booking's channel; a walk-in's form is completed on the clinic tablet. */
+  booked_via: 'online' | 'staff' | 'walk_in' | null;
 }
 
 export interface IntakePhotoRow {
@@ -51,7 +53,7 @@ export interface IntakeSubmission {
 }
 
 const FORM_COLUMNS = `f.id, f.contact_id, f.booking_id, f.probono_entry_id, f.form_version, f.answers, f.pain_points,
-  f.problem_description, f.status, f.completed_at, f.completed_via, b.slot_start AS session_start`;
+  f.problem_description, f.status, f.completed_at, f.completed_via, b.slot_start AS session_start, b.booked_via`;
 
 const FORM_FROM = 'clinical.intake_forms f LEFT JOIN bookings b ON b.id = f.booking_id';
 

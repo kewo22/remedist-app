@@ -282,6 +282,72 @@ export class AvailabilityRepository {
     return this.required(rows[0]);
   }
 
+  // ── Booking: claim and release ─────────────────────────────────────────────────────────
+
+  /**
+   * Claims an open slot for a booking: one conditional update, so two bookings can never both win
+   * (the unique index on active bookings is only a backstop). Refuses a slot that has ended, whose
+   * practitioner isn't active, or that starts before `notBefore` (the public 24-hour cutoff).
+   * Undefined when the slot couldn't be claimed.
+   */
+  async claimSlot(id: string, notBefore: Date | null, tx: Queryable): Promise<SlotRow | undefined> {
+    const { rows } = await tx.query<SlotRow>(
+      `UPDATE availability_slots AS s SET status = 'booked', calendar_sync_pending = true
+       FROM practitioners p
+       WHERE s.id = $1 AND s.status = 'open' AND p.id = s.practitioner_id AND p.is_active
+         AND s.slot_end > now() AND ($2::timestamptz IS NULL OR s.slot_start >= $2)
+       RETURNING ${SLOT_COLUMNS}`,
+      [id, notBefore],
+    );
+    return rows[0];
+  }
+
+  /** Its calendar event should change (for example a booking's status changed) though the slot didn't. */
+  async markCalendarPending(id: string, tx: Queryable): Promise<void> {
+    await tx.query('UPDATE availability_slots SET calendar_sync_pending = true WHERE id = $1', [id]);
+  }
+
+  /** Back to open when its booking is cancelled, expires or moves. Undefined if it wasn't booked. */
+  async releaseSlot(id: string, tx: Queryable): Promise<SlotRow | undefined> {
+    const { rows } = await tx.query<SlotRow>(
+      `UPDATE availability_slots AS s SET status = 'open', calendar_sync_pending = true
+       WHERE s.id = $1 AND s.status = 'booked' RETURNING ${SLOT_COLUMNS}`,
+      [id],
+    );
+    return rows[0];
+  }
+
+  /**
+   * Today's open slots that haven't ended, soonest first, for a walk-in. Locked, skipping any another
+   * walk-in is claiming right now.
+   */
+  async lockOpenSlotsBetween(from: Date, to: Date, tx: Queryable): Promise<SlotRow[]> {
+    const { rows } = await tx.query<SlotRow>(
+      `SELECT ${SLOT_COLUMNS} FROM availability_slots s JOIN practitioners p ON p.id = s.practitioner_id
+       WHERE s.status = 'open' AND p.is_active AND s.slot_start >= $1 AND s.slot_start < $2 AND s.slot_end > now()
+       ORDER BY s.slot_start
+       FOR UPDATE OF s SKIP LOCKED`,
+      [from, to],
+    );
+    return rows;
+  }
+
+  /** The walk-in kiosk's own slot when today has none open: created already booked. */
+  async insertWalkInSlot(
+    slot: { practitionerId: string; start: Date; end: Date; rateLkrMinor: number | null; rateUsdMinor: number | null; sessionTypeId: string },
+    tx: Queryable,
+  ): Promise<SlotRow> {
+    const { rows } = await tx.query<SlotRow>(
+      `INSERT INTO availability_slots AS s
+         (practitioner_id, slot_start, slot_end, status, rate_lkr_minor, rate_usd_minor, session_type_id, source,
+          calendar_sync_pending)
+       VALUES ($1, $2, $3, 'booked', $4, $5, $6, 'walk_in', true)
+       RETURNING ${SLOT_COLUMNS}`,
+      [slot.practitionerId, slot.start, slot.end, slot.rateLkrMinor, slot.rateUsdMinor, slot.sessionTypeId],
+    );
+    return this.required(rows[0]);
+  }
+
   async clearSlotFlag(id: string, tx: Queryable): Promise<SlotRow> {
     const { rows } = await tx.query<SlotRow>(
       `UPDATE availability_slots AS s SET flagged_for_review = false, flag_reason = NULL WHERE s.id = $1

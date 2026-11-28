@@ -6,20 +6,34 @@ import { CalendarConnectionService, describe, type CalendarAccess } from './cale
 import { PUSH_BATCH_SIZE } from './calendar.constants';
 import { CalendarRepository, type CalendarSlotRow } from './calendar.repository';
 
-/** What a slot's event shows. Open slots show as free, so they don't block the owner's calendar. */
+const BOOKED_LABEL = { held: 'Held', confirmed: 'Session', no_show: 'No-show' } as const;
+
+/**
+ * What a slot's event shows. Open slots show as free, so they don't block the owner's calendar. A
+ * booked slot shows the client's name, phone and email, never their notes, and the client isn't
+ * an attendee, so Google never emails them.
+ */
 function renderEvent(slot: CalendarSlotRow): SlotEventWrite {
-  const summary =
-    slot.status === 'open'
-      ? `Open — ${slot.session_type_name ?? 'Remedist availability'}`
-      : slot.status === 'blocked'
-        ? slot.block_reason
-          ? `Blocked — ${slot.block_reason}`
-          : 'Blocked'
-        : 'Booked — The Remedist';
+  let summary: string;
+  const details = [slot.practitioner_name];
+  if (slot.status === 'open') {
+    summary = `Open — ${slot.session_type_name ?? 'Remedist availability'}`;
+  } else if (slot.status === 'blocked') {
+    summary = slot.block_reason ? `Blocked — ${slot.block_reason}` : 'Blocked';
+  } else if (slot.booking_status && slot.client_name) {
+    summary = `${BOOKED_LABEL[slot.booking_status]} — ${slot.client_name}`;
+    details.push(`Phone: ${slot.client_phone ?? '—'}`, `Email: ${slot.client_email ?? '—'}`);
+    if (slot.booking_payment_mode === 'pay_after') {
+      details.push('(Pay after session)');
+    }
+  } else {
+    summary = 'Booked — The Remedist';
+  }
+  details.push('Managed in the Remedist CRM. Moving or deleting this event here moves or deletes an open slot; booked slots are only flagged for review.');
   return {
     slotId: slot.id,
     summary,
-    description: `${slot.practitioner_name}\nManaged in the Remedist CRM. Moving or deleting this event here moves or deletes an open slot; booked slots are only flagged for review.`,
+    description: details.join('\n'),
     start: slot.slot_start,
     end: slot.slot_end,
     free: slot.status === 'open',

@@ -39,16 +39,26 @@ export interface CalendarSlotRow extends SlotRow {
   calendar_sync_pending: boolean;
   session_type_name: string | null;
   practitioner_name: string;
+  /** The slot's current booking, if any (what a booked slot's event shows). */
+  booking_status: 'held' | 'confirmed' | 'no_show' | null;
+  booking_payment_mode: 'upfront' | 'pay_after' | null;
+  client_name: string | null;
+  client_phone: string | null;
+  client_email: string | null;
 }
 
 const SLOT_COLUMNS = `s.id, s.practitioner_id, s.slot_start, s.slot_end, s.status, s.rate_lkr_minor::text AS rate_lkr_minor,
   s.rate_usd_minor::text AS rate_usd_minor, s.session_type_id, s.block_reason, s.source, s.flagged_for_review,
   s.flag_reason, s.created_at, s.updated_at, s.google_event_id, s.blocked_by_google_event_id, s.calendar_sync_pending,
-  st.name AS session_type_name, p.display_name AS practitioner_name`;
+  st.name AS session_type_name, p.display_name AS practitioner_name, bk.status AS booking_status,
+  bk.payment_mode AS booking_payment_mode, bc.name AS client_name, bc.phone AS client_phone, bc.email AS client_email`;
 
+// At most one booking per slot is held or confirmed (unique index); a no-show keeps its slot booked.
 const SLOT_FROM = `availability_slots s
   JOIN practitioners p ON p.id = s.practitioner_id
-  LEFT JOIN session_types st ON st.id = s.session_type_id`;
+  LEFT JOIN session_types st ON st.id = s.session_type_id
+  LEFT JOIN bookings bk ON bk.slot_id = s.id AND bk.status IN ('held', 'confirmed', 'no_show') AND s.status = 'booked'
+  LEFT JOIN contacts bc ON bc.id = bk.contact_id`;
 
 /**
  * All SQL for the Google Calendar integration: the connection (auth.google_oauth_tokens), the sync
